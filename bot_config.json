@@ -1,0 +1,16 @@
+{
+    "bot_token": "7553209584:AAHdgcx_IhL7U1bPptZTygWfplTaWTQSe5c",
+    "bot_name": "WillWay Bot",
+    "about_text": "Пока работает в тестовом режиме, но уже бот WillWay",
+    "description": "WillWay ваш персональный помощник и т.д.",
+    "privacy_mode": false,
+    "description_pic_url": "/web_admin/static/img/desc_20250331234430_20250331231326_IMG_3387.JPEG",
+    "botpic_url": "",
+    "trainer_username": "Jackturaa",
+    "manager_username": "Jackturaa",
+    "channel_url": "https://t.me/prowat",
+    "commands": {
+        "/start": "Начать общение с ботом",
+        "/help": "Показать справку"
+    }
+}
