@@ -1,7 +1,8 @@
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
-from database.models import get_session, User
+from database.models import get_session, User, ChatHistory
+import datetime
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -9,34 +10,54 @@ load_dotenv()
 # Инициализируем клиент OpenAI
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Промпт для ассистента
-HEALTH_SYSTEM_PROMPT = """Ты — персональный ассистент в области физического и ментального здоровья, с акцентом на тренировки, питание, восстановление ментального состояния. Твои ответы должны быть персонализированными, с учётом целей и состояния пользователя. Ты обращаешь внимание на детали, даешь ясные, чёткие рекомендации с учетом состояния здоровья, анализов и предпочтений пользователя.
+# Загружаем промпт из файла
+def load_prompt_from_file(file_path="bot/gpt/WILLWAY_health_assistant_prompt.txt"):
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            return file.read()
+    except Exception as e:
+        print(f"Ошибка при чтении файла промпта: {e}")
+        return ""
 
-Ответы на вопросы вне специализации:
-Если вопрос касается темы, не относящейся к физическому или ментальному здоровью, вежливо сообщай, что ты специализируешься только на этих областях.
-Пример правильного ответа: "Извините, я специализируюсь только на вопросах, связанных с физическим и ментальным здоровьем. Если есть вопросы по этим темам, я с радостью помогу!" Пример неправильного ответа: "Могу помочь с этим, но это не по теме."
+# Загружаем наш новый промпт
+HEALTH_SYSTEM_PROMPT = load_prompt_from_file()
 
-Формат ответов:
-Ответы должны быть:
+# Функции для работы с историей чата
+def save_message_to_history(user_id, role, content):
+    """Сохраняет сообщение в историю диалога"""
+    db_session = get_session()
+    try:
+        chat_message = ChatHistory(
+            user_id=user_id,
+            role=role,
+            content=content,
+            timestamp=datetime.now()
+        )
+        db_session.add(chat_message)
+        db_session.commit()
+    except Exception as e:
+        print(f"Ошибка при сохранении сообщения: {e}")
+        db_session.rollback()
+    finally:
+        db_session.close()
 
-Чёткими и структурированными: используйте списки, подзаголовки и короткие абзацы, чтобы облегчить восприятие.
-
-Персонализированными: всегда обращайся к пользователю по имени, учитывая его предпочтения и параметры.
-
-Дружелюбными, но профессиональными: твой тон должен быть поддерживающим и мотивирующим, но не слишком неформальным.
-
-Указания по длине ответов:
-Ответы должны быть краткими, но информативными (не более 150-200 слов), чтобы пользователи могли быстро воспринять информацию. Убедись, что вся необходимая информация представлена в удобном формате.
-
-Рекомендации:
-При составлении программ питания учитывай:
-
-Возраст, рост, вес, уровень активности и последние анализы.
-
-Программы тренировок составляются только из базы и в рамках доступных разделов. В случае нестандартных запросов спрашивай у пользователя нужные параметры.
-
-Завершение взаимодействия:
-В конце всегда предлагай пользователю создать дополнительные программы, например, по тренировкам или ментальному здоровью, с учётом их целей и потребностей."""
+def get_chat_history(user_id, limit=10):
+    """Получает историю диалога пользователя"""
+    db_session = get_session()
+    try:
+        history = db_session.query(ChatHistory)\
+            .filter(ChatHistory.user_id == user_id)\
+            .order_by(ChatHistory.timestamp.desc())\
+            .limit(limit)\
+            .all()
+        # Переворачиваем список, чтобы сообщения шли в хронологическом порядке
+        history.reverse()
+        return [{"role": msg.role, "content": msg.content} for msg in history]
+    except Exception as e:
+        print(f"Ошибка при получении истории: {e}")
+        return []
+    finally:
+        db_session.close()
 
 def get_user_profile(user_id):
     """Получает профиль пользователя из базы данных"""
@@ -83,7 +104,7 @@ def format_user_profile_for_gpt(profile):
 
 def get_health_assistant_response(user_id, user_message, conversation_history=None):
     """
-    Получает ответ от GPT на запрос пользователя
+    Получает ответ от GPT на запрос пользователя с сохранением истории
     
     Args:
         user_id (int): ID пользователя в Telegram
@@ -93,15 +114,17 @@ def get_health_assistant_response(user_id, user_message, conversation_history=No
     Returns:
         str: Ответ от модели GPT
     """
-    if conversation_history is None:
-        conversation_history = []
-    
     # Получаем информацию о пользователе
     user_profile = get_user_profile(user_id)
     profile_text = format_user_profile_for_gpt(user_profile)
     
     # Формируем полный промпт с учетом информации о пользователе
     full_prompt = f"{HEALTH_SYSTEM_PROMPT}\n\n{profile_text}"
+    
+    # Получаем историю диалога из базы данных
+    # Если история уже передана, используем ее
+    if conversation_history is None:
+        conversation_history = get_chat_history(user_id)
     
     # Формируем сообщения для API
     messages = [
@@ -116,15 +139,24 @@ def get_health_assistant_response(user_id, user_message, conversation_history=No
     messages.append({"role": "user", "content": user_message})
     
     try:
+        # Сохраняем сообщение пользователя в историю
+        save_message_to_history(user_id, "user", user_message)
+        
         # Отправляем запрос к API OpenAI
         response = client.chat.completions.create(
-            model="gpt-4o-mini",  # Используем модель gpt-4o-mini как указано
+            model="gpt-4o-mini",  # Можно улучшить до gpt-4o
             messages=messages,
             max_tokens=1000,
             temperature=0.7
         )
         
+        # Получаем ответ
+        assistant_response = response.choices[0].message.content
+        
+        # Сохраняем ответ ассистента в историю
+        save_message_to_history(user_id, "assistant", assistant_response)
+        
         # Возвращаем текст ответа
-        return response.choices[0].message.content
+        return assistant_response
     except Exception as e:
         return f"Извините, произошла ошибка при обработке вашего запроса: {str(e)}"

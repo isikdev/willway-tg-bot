@@ -1,0 +1,100 @@
+body {
+    font-family:
+        "Inter",
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        Roboto,
+        "Helvetica Neue",
+        sans-serif;
+}
+
+.bg-primary {
+    background-color: #154c47;
+}
+
+.text-primary {
+    color: #154c47;
+}
+
+.hover\:bg-opacity-90:hover {
+    --tw-bg-opacity: 0.9;
+}
+
+.focus\:ring-primary:focus {
+    --tw-ring-color: #154c47;
+}
+
+.focus\:border-primary:focus {
+    border-color: #154c47;
+}
+
+.border-primary {
+    border-color: #154c47;
+}
+
+.transition {
+    transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+}
+
+.duration-200 {
+    transition-duration: 200ms;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.animate-fadeIn {
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+.chart-container {
+    height: 300px;
+    width: 100%;
+}
+
+.willway-logo {
+    max-height: 32px;
+}
+
+.notification {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 12px 16px;
+    background-color: #154c47;
+    color: white;
+    border-radius: 4px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transform: translateY(100px);
+    opacity: 0;
+    transition: all 0.3s ease;
+}
+
+.notification.show {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+@media (max-width: 640px) {
+    .sm\:text-center {
+        text-align: center;
+    }
+
+    .sm\:w-full {
+        width: 100%;
+    }
+
+    .chart-container {
+        height: 200px;
+    }
+}

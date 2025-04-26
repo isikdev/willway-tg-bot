@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Платеж отменен</title>
+        <link
+            href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap"
+            rel="stylesheet">
+        <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            color: #212529;
+        }
+        .container {
+            max-width: 600px;
+            width: 90%;
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            text-align: center;
+        }
+        .cancel-icon {
+            font-size: 72px;
+            color: #dc3545;
+            margin-bottom: 20px;
+        }
+        h1 {
+            font-size: 28px;
+            margin-bottom: 20px;
+            color: #212529;
+        }
+        p {
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 24px;
+            color: #6c757d;
+        }
+        .btn-primary {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: 500;
+            transition: background-color 0.3s;
+            margin-right: 10px;
+        }
+        .btn-primary:hover {
+            background-color: #0069d9;
+        }
+        .btn-outline {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: transparent;
+            color: #6c757d;
+            border: 1px solid #6c757d;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: 500;
+            transition: all 0.3s;
+        }
+        .btn-outline:hover {
+            background-color: #6c757d;
+            color: white;
+        }
+        .buttons {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+    </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="cancel-icon">❌</div>
+            <h1>Платеж был отменен</h1>
+            <p>Вы отменили процесс оплаты. Если у вас возникли вопросы или
+                проблемы с оплатой, вы можете связаться с нашей поддержкой.</p>
+
+            <div class="buttons">
+                <a href="https://willway.pro/payment"
+                    class="btn-primary retry-payment">Попробовать снова</a>
+                <a href="{{ telegram_bot_url }}"
+                    class="btn-outline return-to-bot">Вернуться в бот</a>
+            </div>
+        </div>
+
+        <!-- Скрипт для отслеживания событий платежа -->
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Отслеживаем успешный переход на страницу отмены
+            trackPaymentEvent('cancel_page_loaded');
+            
+            // Отслеживаем клик по кнопке возврата в бот
+            document.querySelector('.return-to-bot').addEventListener('click', function() {
+                trackPaymentEvent('return_to_bot_from_cancel_clicked');
+            });
+            
+            // Отслеживаем клик по кнопке повторной попытки оплаты
+            document.querySelector('.retry-payment').addEventListener('click', function() {
+                trackPaymentEvent('retry_payment_clicked');
+            });
+            
+            // Функция для отправки событий на сервер
+            function trackPaymentEvent(eventType) {
+                // Получаем параметры из URL
+                const urlParams = new URLSearchParams(window.location.search);
+                const orderId = urlParams.get('orderId');
+                const tgid = urlParams.get('tgid');
+                
+                // Если есть ID пользователя и платежа, отправляем событие
+                if (tgid && orderId) {
+                    const data = {
+                        user_id: parseInt(tgid),
+                        event_type: eventType,
+                        payment_id: orderId,
+                        status: 'cancelled',
+                        data: {
+                            source: 'cancel_page_script',
+                            url: window.location.href
+                        }
+                    };
+                    
+                    // Отправляем событие на сервер
+                    fetch('https://api-willway.ru/api/v1/payment/track', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(data)
+                    }).catch(error => {
+                        console.error('Error tracking payment event:', error);
+                    });
+                }
+            }
+        });
+    </script>
+    </body>
+</html>

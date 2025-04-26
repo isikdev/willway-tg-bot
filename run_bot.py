@@ -8,10 +8,24 @@
 import os
 import logging
 import sys
+import threading
+from flask import Flask
 from env_var import setup_env
 
 # Устанавливаем переменные окружения
 setup_env()
+
+# Устанавливаем имя бота из настроек, если не указано явно
+if not os.getenv("TELEGRAM_BOT_USERNAME"):
+    from bot.handlers import get_bot_config
+    try:
+        config = get_bot_config()
+        bot_username = config.get("bot_name", "willway_bot")
+        os.environ["TELEGRAM_BOT_USERNAME"] = bot_username
+        print(f"Установлена переменная TELEGRAM_BOT_USERNAME = {bot_username}")
+    except Exception as e:
+        print(f"Ошибка при установке имени бота: {str(e)}")
+        os.environ["TELEGRAM_BOT_USERNAME"] = "willway_bot"
 
 # Настраиваем логирование
 logging.basicConfig(
@@ -42,8 +56,75 @@ def check_environment():
     logger.info("Все необходимые переменные окружения найдены")
     return True
 
+def run_flask_server():
+    """Запускает Flask сервер для обработки вебхуков и запросов от Tilda"""
+    try:
+        from web import create_app
+        
+        app = create_app()
+        
+        # Получаем настройки из переменных окружения
+        host = os.getenv("FLASK_HOST", "0.0.0.0")
+        port = int(os.getenv("FLASK_PORT", 5000))
+        
+        logger.info(f"Запуск Flask сервера на {host}:{port}")
+        app.run(host=host, port=port, threaded=True)
+    except Exception as e:
+        logger.error(f"Ошибка при запуске Flask сервера: {e}")
+
+def run_telegram_bot():
+    """Запускает Telegram бота"""
+    try:
+        # Сначала проверяем версию python-telegram-bot
+        import telegram
+        version = telegram.__version__
+        logger.info(f"Используется python-telegram-bot версии {version}")
+        
+        try:
+            # Создаем фиктивные классы для совместимости
+            import sys
+            from database.models import Payment
+            
+            # Создаем фиктивные классы, которые могут использоваться в коде,
+            # но которых нет в моделях
+            class PaymentRecord:
+                pass
+                
+            class PaymentHistory:
+                pass
+                
+            class PaymentEvent:
+                pass
+                
+            # Добавляем их в модуль database.models
+            import database.models
+            database.models.PaymentRecord = PaymentRecord
+            database.models.PaymentHistory = PaymentHistory
+            database.models.PaymentEvent = PaymentEvent
+            
+            # Пробуем импортировать код бота с парсингом ParseMode из telegram (для v13.x)
+            from bot.handlers import main as run_bot
+            run_bot()
+        except ImportError as e:
+            if "cannot import name 'ParseMode' from 'telegram.constants'" in str(e):
+                logger.info("Пробуем исправить импорт ParseMode...")
+                # Патчим импорт ParseMode
+                import sys
+                from telegram import ParseMode
+                sys.modules['telegram.constants'] = type('FakeModule', (), {'ParseMode': ParseMode})
+                # Пробуем снова импортировать
+                from bot.handlers import main as run_bot
+                run_bot()
+            else:
+                raise e
+    except ImportError as e:
+        logger.error(f"Ошибка импорта модуля handlers: {e}")
+    except Exception as e:
+        logger.error(f"Ошибка при запуске бота: {e}")
+        logger.exception(e)
+
 def main():
-    """Основная функция для запуска бота"""
+    """Основная функция для запуска бота и веб-сервера"""
     logger.info("Запуск бота WillWay")
     
     # Проверяем переменные окружения
@@ -51,16 +132,13 @@ def main():
         logger.error("Невозможно запустить бота из-за отсутствия переменных окружения")
         return
     
-    # Импортируем функцию main из модуля handlers
-    try:
-        from bot.handlers import main as run_bot
-        
-        # Запускаем бота
-        run_bot()
-    except ImportError as e:
-        logger.error(f"Ошибка импорта модуля handlers: {e}")
-    except Exception as e:
-        logger.error(f"Ошибка при запуске бота: {e}")
+    # Запускаем Flask сервер в отдельном потоке
+    flask_thread = threading.Thread(target=run_flask_server)
+    flask_thread.daemon = True
+    flask_thread.start()
+    
+    # Запускаем Telegram бота в основном потоке
+    run_telegram_bot()
 
 if __name__ == "__main__":
     main()

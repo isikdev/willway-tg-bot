@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Ошибка | WillWay Блогеры{% endblock %}
+
+{% block content %}
+<div
+    class="min-h-[70vh] flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8">
+    <div class="w-full max-w-md fade-in">
+        <div class="text-center mb-8">
+            <h2 class="text-3xl font-extrabold text-gray-900">
+                Произошла ошибка
+            </h2>
+            <p class="mt-2 text-gray-600">
+                {{ error_message if error_message else "Что-то пошло не так" }}
+            </p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-lg p-6 text-center">
+            <p class="mb-6 text-gray-600">
+                Будем признательны, если вы сообщите об этой ошибке
+                администратору.
+            </p>
+            <a href="{{ url_for('login') }}" class="btn-primary inline-block">
+                Вернуться на главную
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

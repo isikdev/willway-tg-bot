@@ -96,89 +96,11 @@
                         </div>
 
                         <div>
-                            <label for="description"
+                            <label
                                 class="block text-sm font-medium text-gray-700 mb-1">Описание</label>
                             <textarea id="description" name="description"
                                 rows="3"
                                 class="block w-full rounded-md border-0 py-1.5 px-3 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-primary sm:text-sm">{{ config.description }}</textarea>
-                        </div>
-
-                        <div>
-                            <label
-                                class="block text-sm font-medium text-gray-700 mb-1">Картинка
-                                описания</label>
-                            <div class="mt-1 flex items-center">
-                                <div id="description_pic_preview"
-                                    class="h-24 w-24 overflow-hidden bg-gray-100 rounded-md border border-gray-200 flex items-center justify-center">
-                                    {% if config.description_pic_url %}
-                                    <img src="{{ config.description_pic_url }}"
-                                        alt="Картинка описания"
-                                        class="h-full w-full object-cover">
-                                    {% else %}
-                                    <svg xmlns="http://www.w3.org/2000/svg"
-                                        fill="none" viewBox="0 0 24 24"
-                                        stroke-width="1.5" stroke="currentColor"
-                                        class="w-10 h-10 text-gray-400">
-                                        <path stroke-linecap="round"
-                                            stroke-linejoin="round"
-                                            d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-                                    </svg>
-                                    {% endif %}
-                                </div>
-                                <input type="file" id="description_pic"
-                                    name="description_pic" accept="image/*"
-                                    class="hidden">
-                                <button type="button"
-                                    onclick="document.getElementById('description_pic').click()"
-                                    class="ml-5 bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
-                                    Выбрать изображение
-                                </button>
-                                {% if config.description_pic_url %}
-                                <button type="button"
-                                    id="remove_description_pic"
-                                    class="ml-3 text-sm text-red-600 hover:text-red-800">
-                                    Удалить
-                                </button>
-                                {% endif %}
-                            </div>
-                        </div>
-
-                        <div>
-                            <label
-                                class="block text-sm font-medium text-gray-700 mb-1">Ботпик
-                                (аватар)</label>
-                            <div class="mt-1 flex items-center">
-                                <div id="botpic_preview"
-                                    class="h-24 w-24 overflow-hidden bg-gray-100 rounded-full border border-gray-200 flex items-center justify-center">
-                                    {% if config.botpic_url %}
-                                    <img src="{{ config.botpic_url }}"
-                                        alt="Аватар бота"
-                                        class="h-full w-full object-cover">
-                                    {% else %}
-                                    <svg xmlns="http://www.w3.org/2000/svg"
-                                        fill="none" viewBox="0 0 24 24"
-                                        stroke-width="1.5" stroke="currentColor"
-                                        class="w-10 h-10 text-gray-400">
-                                        <path stroke-linecap="round"
-                                            stroke-linejoin="round"
-                                            d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm-.375 0h.008v.015h-.008V9.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75zm-.375 0h.008v.015h-.008V9.75z" />
-                                    </svg>
-                                    {% endif %}
-                                </div>
-                                <input type="file" id="botpic" name="botpic"
-                                    accept="image/*" class="hidden">
-                                <button type="button"
-                                    onclick="document.getElementById('botpic').click()"
-                                    class="ml-5 bg-white py-2 px-3 border border-gray-300 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
-                                    Выбрать изображение
-                                </button>
-                                {% if config.botpic_url %}
-                                <button type="button" id="remove_botpic"
-                                    class="ml-3 text-sm text-red-600 hover:text-red-800">
-                                    Удалить
-                                </button>
-                                {% endif %}
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -252,6 +174,63 @@
                     </div>
                 </div>
 
+                <!-- Настройки URL для страниц перед покупкой -->
+                <div class="mb-8">
+                    <h4
+                        class="text-sm font-medium text-gray-700 mb-3 flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none"
+                            viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor"
+                            class="w-5 h-5 mr-2 text-primary">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+                        </svg>
+                        Настройки страниц перед покупкой
+                    </h4>
+
+                    <div
+                        class="space-y-4 bg-gray-50 p-5 rounded-md shadow-inner border border-gray-100">
+                        <div>
+                            <label for="subscription_page_url"
+                                class="block text-sm font-medium text-gray-700 mb-1">URL
+                                страницы подписок</label>
+                            <input type="text" id="subscription_page_url"
+                                name="subscription_page_url"
+                                class="block w-full rounded-md border-0 py-1.5 px-3 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-primary sm:text-sm"
+                                value="{{ config.subscription_page_url }}">
+                            <p class="mt-1 text-xs text-gray-500">URL-адрес
+                                страницы с вариантами подписки
+                                (например: https://willway.ru/subscriptions)</p>
+                        </div>
+
+                        <div>
+                            <label for="reviews_page_url"
+                                class="block text-sm font-medium text-gray-700 mb-1">URL
+                                страницы отзывов</label>
+                            <input type="text" id="reviews_page_url"
+                                name="reviews_page_url"
+                                class="block w-full rounded-md border-0 py-1.5 px-3 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-primary sm:text-sm"
+                                value="{{ config.reviews_page_url }}">
+                            <p class="mt-1 text-xs text-gray-500">URL-адрес
+                                страницы с отзывами и кейсами
+                                (например: https://willway.ru/reviews)</p>
+                        </div>
+
+                        <div>
+                            <label for="test_drive_url"
+                                class="block text-sm font-medium text-gray-700 mb-1">URL
+                                тест-драйва</label>
+                            <input type="text" id="test_drive_url"
+                                name="test_drive_url"
+                                class="block w-full rounded-md border-0 py-1.5 px-3 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-primary sm:text-sm"
+                                value="{{ config.test_drive_url }}">
+                            <p class="mt-1 text-xs text-gray-500">URL-адрес для
+                                тест-драйва ограниченной версии
+                                (например: https://willway.ru/test-drive)</p>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Настройки приватности -->
                 <div class="mb-8">
                     <h4
@@ -292,7 +271,7 @@
                             stroke="currentColor"
                             class="w-5 h-5 mr-2 text-primary">
                             <path stroke-linecap="round" stroke-linejoin="round"
-                                d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+                                d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6 0 3.375 3.375 0 016 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
                         </svg>
                         Управление администраторами
                     </h4>
@@ -341,6 +320,7 @@
                                         <td
                                             class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{{
                                             admin.added_at.strftime('%d.%m.%Y %H:%M')
+                                            if admin.added_at else "Не указано"
                                             }}</td>
                                         <td
                                             class="px-4 py-2 whitespace-nowrap text-right text-sm font-medium">
@@ -641,73 +621,8 @@
             section.style.setProperty('--idx', idx);
         });
         
-        // Превью загрузки изображений
-        function handleImagePreview(inputId, previewId) {
-            const input = document.getElementById(inputId);
-            const preview = document.getElementById(previewId);
-            
-            input.addEventListener('change', function() {
-                if (this.files && this.files[0]) {
-                    const reader = new FileReader();
-                    
-                    reader.onload = function(e) {
-                        // Очищаем содержимое превью
-                        preview.innerHTML = '';
-                        
-                        // Создаем элемент изображения
-                        const img = document.createElement('img');
-                        img.src = e.target.result;
-                        img.classList.add('h-full', 'w-full', 'object-cover');
-                        
-                        // Добавляем изображение в контейнер превью
-                        preview.appendChild(img);
-                    }
-                    
-                    reader.readAsDataURL(this.files[0]);
-                }
-            });
-        }
-        
-        // Инициализируем превью для загрузки изображений
-        handleImagePreview('description_pic', 'description_pic_preview');
-        handleImagePreview('botpic', 'botpic_preview');
-        
-        // Обработчики для удаления изображений
-        if (document.getElementById('remove_description_pic')) {
-            document.getElementById('remove_description_pic').addEventListener('click', function() {
-                document.getElementById('description_pic_preview').innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10 text-gray-400">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
-                    </svg>
-                `;
-                // Добавляем скрытое поле для указания, что изображение нужно удалить
-                const hiddenField = document.createElement('input');
-                hiddenField.type = 'hidden';
-                hiddenField.name = 'remove_description_pic';
-                hiddenField.value = '1';
-                document.querySelector('form').appendChild(hiddenField);
-                
-                this.style.display = 'none';
-            });
-        }
-        
-        if (document.getElementById('remove_botpic')) {
-            document.getElementById('remove_botpic').addEventListener('click', function() {
-                document.getElementById('botpic_preview').innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10 text-gray-400">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm-.375 0h.008v.015h-.008V9.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75zm-.375 0h.008v.015h-.008V9.75z" />
-                    </svg>
-                `;
-                // Добавляем скрытое поле для указания, что изображение нужно удалить
-                const hiddenField = document.createElement('input');
-                hiddenField.type = 'hidden';
-                hiddenField.name = 'remove_botpic';
-                hiddenField.value = '1';
-                document.querySelector('form').appendChild(hiddenField);
-                
-                this.style.display = 'none';
-            });
-        }
+        // Функция для превью загружаемых изображений больше не используется
+        // Удалены обработчики для preview изображений и кнопок удаления
         
         // Добавление/удаление команд
         const commandsContainer = document.getElementById('commands_container');

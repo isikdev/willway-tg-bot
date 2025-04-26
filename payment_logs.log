@@ -1,0 +1,37 @@
+2025-04-25 14:25:14,891 - root - INFO - Airtable API отключено
+2025-04-25 14:25:14,893 - root - INFO - [STARTUP] Запуск бота WILLWAY
+2025-04-25 14:25:14,893 - root - INFO - Попытка чтения конфигурации бота
+2025-04-25 14:25:14,893 - root - INFO - Путь к файлу конфигурации: C:\Users\webse\OneDrive\Рабочий стол\willway\bot_config.json
+2025-04-25 14:25:14,894 - root - INFO - Файл существует: True
+2025-04-25 14:25:14,894 - payment_system - INFO - [93mТокен бота получен: Да[0m
+2025-04-25 14:25:14,894 - root - INFO - Конфигурация загружена: dict_keys(['trainer_username', 'manager_username', 'bot_token', 'bot_name', 'about_text', 'description', 'privacy_mode', 'description_pic_url', 'intro_video_url', 'botpic_url', 'channel_url', 'subscription_page_url', 'reviews_page_url', 'test_drive_url', 'commands', 'description_pic_absolute_path', 'intro_video_file_id', 'video_settings'])
+2025-04-25 14:25:14,894 - payment_system - INFO - [93mТокен бота получен: Да[0m
+2025-04-25 14:25:14,894 - root - INFO - Найден путь изображения описания: /web_admin/static/img/desc_20250331234430_20250331231326_IMG_3387.JPEG
+2025-04-25 14:25:14,894 - payment_system - INFO - [92mБот успешно инициализирован[0m
+2025-04-25 14:25:14,894 - root - INFO - Абсолютный путь изображения описания: C:\Users\webse\OneDrive\Рабочий стол\willway\web_admin/static/img/desc_20250331234430_20250331231326_IMG_3387.JPEG
+2025-04-25 14:25:14,894 - payment_system - INFO - [92mБот успешно инициализирован[0m
+2025-04-25 14:25:14,894 - web - INFO - Зарегистрированы маршруты для платежей
+2025-04-25 14:25:14,894 - root - INFO - Файл изображения описания существует
+2025-04-25 14:25:14,894 - web - INFO - Flask-приложение успешно создано и настроено
+2025-04-25 14:25:14,899 - root - INFO - Обновлено описание команды /help в конфигурации
+2025-04-25 14:25:14,899 - __main__ - INFO - Запуск Flask сервера на 0.0.0.0:5000
+2025-04-25 14:25:14,901 - root - INFO - Конфигурация бота успешно сохранена в файл C:\Users\webse\OneDrive\Рабочий стол\willway\bot_config.json
+2025-04-25 14:25:14,902 - root - INFO - Конфигурация бота успешно инициализирована
+2025-04-25 14:25:14,903 - root - INFO - Попытка чтения конфигурации бота
+2025-04-25 14:25:14,904 - root - INFO - Путь к файлу конфигурации: C:\Users\webse\OneDrive\Рабочий стол\willway\bot_config.json
+2025-04-25 14:25:14,904 - root - INFO - Файл существует: True
+2025-04-25 14:25:14,917 - root - INFO - Конфигурация загружена: dict_keys(['trainer_username', 'manager_username', 'bot_token', 'bot_name', 'about_text', 'description', 'privacy_mode', 'description_pic_url', 'intro_video_url', 'botpic_url', 'channel_url', 'subscription_page_url', 'reviews_page_url', 'test_drive_url', 'commands', 'description_pic_absolute_path', 'intro_video_file_id', 'video_settings'])
+2025-04-25 14:25:14,921 - root - INFO - Найден путь изображения описания: /web_admin/static/img/desc_20250331234430_20250331231326_IMG_3387.JPEG
+2025-04-25 14:25:14,924 - root - INFO - Абсолютный путь изображения описания: C:\Users\webse\OneDrive\Рабочий стол\willway\web_admin/static/img/desc_20250331234430_20250331231326_IMG_3387.JPEG
+2025-04-25 14:25:14,925 - root - INFO - Файл изображения описания существует
+2025-04-25 14:25:14,925 - root - INFO - Применение настроек бота...
+2025-04-25 14:25:14,944 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.84.137:5000
+2025-04-25 14:25:14,950 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-04-25 14:25:15,443 - root - INFO - Обновлены команды бота: [('start', 'Начать общение с ботом'), ('help', 'Помощь')]
+2025-04-25 14:25:15,443 - root - INFO - Обновлен режим приватности: False
+2025-04-25 14:25:15,445 - root - INFO - [STARTUP] Запуск бота в режиме polling
+2025-04-25 14:25:15,453 - apscheduler.scheduler - INFO - Scheduler started
+2025-04-25 14:25:15,698 - root - INFO - [STARTUP] Бот запущен!
