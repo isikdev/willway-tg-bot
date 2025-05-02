@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Интеграция трекера с Tilda</title>
+        <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2, h3 {
+            color: #333;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        code {
+            font-family: Consolas, Monaco, 'Andale Mono', monospace;
+            background-color: #f5f5f5;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+        .note {
+            background-color: #fffacd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+        .warning {
+            background-color: #ffeeee;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+    </style>
+    </head>
+    <body>
+        <h1>Интеграция системы отслеживания платежей с Tilda</h1>
+
+        <div class="note">
+            <strong>Важно:</strong> Обновите значение <code>API_ENDPOINT</code>
+            в скрипте ниже на актуальный URL вашего сервера.
+        </div>
+
+        <h2>Шаг 1: Добавление JavaScript-кода на сайт Tilda</h2>
+
+        <p>В панели управления Tilda перейдите в раздел «Настройки сайта» →
+            «Подключение внешних скриптов». Добавьте следующий код перед
+            закрывающим тегом <code>&lt;/body&gt;</code>:</p>
+
+        <pre><code>&lt;script&gt;
+/**
+ * Tilda Payment Tracker
+ * Отслеживает действия пользователя на странице оплаты Tilda и отправляет их на сервер
+ */
+
+(function() {
+    // Настройки
+    const API_ENDPOINT = 'http://45.141.78.243:5001/api/tilda/track'; // ЗАМЕНИТЕ НА ВАШ URL СЕРВЕРА
+    const DEBUG = false; // Включить/выключить отладочные сообщения
+    const BOT_USERNAME = 'willwayapp_bot'; // Имя бота
+    const INACTIVITY_TIMEOUT = 15000; // 15 секунд для фиксации неактивности
+    let inactivityTimer = null;
+    let lastActivityTime = Date.now();
+    let hasActivity = false;
+    
+    // Вспомогательные функции
+    function log(message) {
+        if (DEBUG) {
+            console.log(`[Tilda Tracker] ${message}`);
+        }
+    }
+    
+    // Получение параметров из URL
+    function getUrlParams() {
+        let params = {};
+        window.location.search.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m, key, value) {
+            params[key] = decodeURIComponent(value);
+        });
+        return params;
+    }
+    
+    // Отправка события на сервер
+    function trackEvent(eventType, additionalData = {}) {
+        const urlParams = getUrlParams();
+        const tgid = urlParams.tgid || localStorage.getItem('tg_user_id');
+        
+        if (!tgid) {
+            log('Не найден идентификатор пользователя Telegram (tgid)');
+            return;
+        }
+        
+        const data = {
+            user_id: tgid,
+            event_type: eventType,
+            data: {
+                ...additionalData,
+                url: window.location.href,
+                page_title: document.title,
+                referrer: document.referrer,
+                timestamp: new Date().toISOString()
+            }
+        };
+        
+        log(`Отправка события ${eventType} для пользователя ${tgid}`);
+        
+        fetch(API_ENDPOINT, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(result => {
+            log(`Событие успешно отправлено: ${JSON.stringify(result)}`);
+        })
+        .catch(error => {
+            log(`Ошибка при отправке события: ${error}`);
+        });
+    }
+    
+    // Обновление таймера неактивности
+    function resetInactivityTimer() {
+        lastActivityTime = Date.now();
+        hasActivity = true;
+        
+        // Очищаем предыдущий таймер если он был
+        if (inactivityTimer) {
+            clearTimeout(inactivityTimer);
+        }
+        
+        // Устанавливаем новый таймер
+        inactivityTimer = setTimeout(checkInactivity, INACTIVITY_TIMEOUT);
+    }
+    
+    // Проверка неактивности пользователя
+    function checkInactivity() {
+        const now = Date.now();
+        const inactiveTime = now - lastActivityTime;
+        
+        log(`Проверка неактивности: ${inactiveTime}ms прошло с последней активности`);
+        
+        if (inactiveTime >= INACTIVITY_TIMEOUT) {
+            log('Пользователь неактивен, отправляем событие');
+            trackEvent('tilda_user_inactive', {
+                inactive_time: inactiveTime,
+                has_activity: hasActivity
+            });
+        }
+    }
+    
+    // Инициализация трекера
+    function init() {
+        const urlParams = getUrlParams();
+        const tgid = urlParams.tgid;
+        
+        log('Инициализация трекера');
+        
+        if (tgid) {
+            // Сохраняем ID пользователя в localStorage
+            localStorage.setItem('tg_user_id', tgid);
+            localStorage.setItem('tg_payment_start_time', new Date().getTime());
+            localStorage.setItem('tg_payment_completed', 'false');
+            
+            // Отслеживаем событие открытия страницы
+            trackEvent('tilda_page_open', {
+                tgid: tgid,
+                timestamp: new Date().getTime()
+            });
+            
+            // Инициализируем таймер неактивности
+            resetInactivityTimer();
+        } else {
+            log('ID пользователя Telegram не найден в URL');
+        }
+        
+        // Отслеживаем активность пользователя
+        const activityEvents = ['mousemove', 'mousedown', 'keypress', 'scroll', 'touchstart', 'click'];
+        activityEvents.forEach(eventType => {
+            document.addEventListener(eventType, function() {
+                resetInactivityTimer();
+            });
+        });
+        
+        // Отслеживаем клики по кнопкам оплаты
+        document.addEventListener('click', function(e) {
+            const paymentButton = e.target.closest('button[type="submit"], .t-btn, [data-payment-btn]');
+            if (paymentButton) {
+                localStorage.setItem('tg_payment_btn_clicked', 'true');
+                localStorage.setItem('tg_payment_btn_time', new Date().getTime());
+                
+                trackEvent('tilda_payment_button_click', {
+                    button_text: paymentButton.innerText,
+                    button_class: paymentButton.className,
+                    timestamp: new Date().getTime()
+                });
+            }
+        });
+        
+        // Если это страница успешной оплаты
+        if (window.location.pathname.includes('/success') || 
+            document.title.toLowerCase().includes('успешн') || 
+            document.title.toLowerCase().includes('спасибо')) {
+            
+            const tgid = localStorage.getItem('tg_user_id');
+            
+            if (tgid) {
+                // Отмечаем успешную оплату
+                localStorage.setItem('tg_payment_completed', 'true');
+                localStorage.setItem('tg_payment_success_time', new Date().getTime());
+                
+                // Отслеживаем событие успешной оплаты
+                trackEvent('tilda_payment_success', {
+                    tgid: tgid,
+                    timestamp: new Date().getTime()
+                });
+                
+                // Создаем ссылку для возврата в бот
+                const botReturnUrl = `https://t.me/${BOT_USERNAME}?start=payment_success_${tgid}`;
+                
+                // Добавляем кнопку для возврата в бот
+                const returnButton = document.createElement('a');
+                returnButton.href = botReturnUrl;
+                returnButton.className = 't-btn';
+                returnButton.innerText = 'Вернуться в Telegram';
+                returnButton.style.margin = '20px auto';
+                returnButton.style.display = 'block';
+                returnButton.style.maxWidth = '300px';
+                returnButton.style.textAlign = 'center';
+                
+                // Добавляем кнопку на страницу
+                const thanksElement = document.querySelector('.t-title, .t-heading, h1, .t-text');
+                if (thanksElement && thanksElement.parentNode) {
+                    thanksElement.parentNode.insertBefore(returnButton, thanksElement.nextSibling);
+                } else {
+                    document.body.appendChild(returnButton);
+                }
+                
+                // Отслеживаем клик по кнопке возврата
+                returnButton.addEventListener('click', function() {
+                    trackEvent('tilda_return_to_bot_click', {
+                        tgid: tgid,
+                        timestamp: new Date().getTime()
+                    });
+                });
+                
+                // Автоматический переход обратно в бот через 5 секунд
+                setTimeout(function() {
+                    trackEvent('tilda_auto_return_to_bot', {
+                        tgid: tgid,
+                        timestamp: new Date().getTime()
+                    });
+                    window.location.href = botReturnUrl;
+                }, 5000);
+            }
+        }
+        
+        // Отслеживаем отправку формы (может быть форма оплаты)
+        document.addEventListener('submit', function(e) {
+            const form = e.target;
+            const tgid = localStorage.getItem('tg_user_id');
+            
+            if (tgid) {
+                trackEvent('tilda_form_submit', {
+                    form_id: form.id || 'unknown',
+                    form_action: form.action || 'unknown',
+                    tgid: tgid,
+                    timestamp: new Date().getTime()
+                });
+            }
+        });
+        
+        // Отслеживаем закрытие страницы
+        window.addEventListener('beforeunload', function() {
+            const tgid = localStorage.getItem('tg_user_id');
+            if (tgid) {
+                trackEvent('tilda_page_close', {
+                    tgid: tgid,
+                    timestamp: new Date().getTime(),
+                    total_time: new Date().getTime() - parseInt(localStorage.getItem('tg_payment_start_time') || '0'),
+                    has_activity: hasActivity
+                });
+            }
+        });
+    }
+    
+    // Запускаем инициализацию после загрузки документа
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
+&lt;/script&gt;</code></pre>
+
+        <h2>Шаг 2: Настройка параметров скрипта</h2>
+
+        <p>В верхней части скрипта измените следующие настройки:</p>
+
+        <ul>
+            <li><code>API_ENDPOINT</code> - URL вашего сервера, например:
+                <code>http://45.141.78.243:5001/api/tilda/track</code></li>
+            <li><code>DEBUG</code> - установите <code>true</code> для отладки
+                или <code>false</code> для продакшн</li>
+            <li><code>BOT_USERNAME</code> - имя вашего Telegram бота, например:
+                <code>willwayapp_bot</code></li>
+            <li><code>INACTIVITY_TIMEOUT</code> - время в миллисекундах, после
+                которого
+                пользователь считается неактивным (по умолчанию 15000 мс = 15
+                секунд)</li>
+        </ul>
+
+        <h2>Шаг 3: Проверка работоспособности</h2>
+
+        <p>Чтобы проверить, что трекер работает:</p>
+
+        <ol>
+            <li>Откройте страницу оплаты с параметром <code>tgid</code>,
+                например:
+                <code>https://willway.pro/payment?tgid=123456</code></li>
+            <li>Откройте консоль браузера (F12) и убедитесь, что в логах нет
+                ошибок</li>
+            <li>Проверьте, что в логах сервера появились соответствующие
+                записи</li>
+        </ol>
+
+        <h2>Шаг 4: Запуск сервера для обработки событий</h2>
+
+        <p>Для запуска сервера, который обрабатывает события от Tilda и
+            отправляет уведомления,
+            выполните следующую команду:</p>
+
+        <pre><code>python run_tilda_webhook.py</code></pre>
+
+        <p>Этот скрипт запустит сервер на порту 5001 и будет периодически
+            проверять неактивные посещения,
+            отправляя уведомления пользователям, которые зашли на страницу, но
+            не совершили никаких действий.</p>
+
+        <div class="warning">
+            <strong>Внимание!</strong> Если у вас включена защита от CORS,
+            необходимо настроить ваш сервер для приема запросов с домена вашего
+            сайта Tilda.
+        </div>
+
+        <h2>Отслеживаемые события</h2>
+
+        <p>Трекер отслеживает следующие события:</p>
+
+        <ul>
+            <li><code>tilda_page_open</code> - открытие страницы оплаты</li>
+            <li><code>tilda_payment_button_click</code> - клик по кнопке
+                оплаты</li>
+            <li><code>tilda_form_submit</code> - отправка формы оплаты</li>
+            <li><code>tilda_payment_success</code> - успешная оплата</li>
+            <li><code>tilda_return_to_bot_click</code> - клик по кнопке
+                "Вернуться в Telegram"</li>
+            <li><code>tilda_auto_return_to_bot</code> - автоматический возврат в
+                бот</li>
+            <li><code>tilda_page_close</code> - закрытие страницы оплаты</li>
+            <li><code>tilda_user_inactive</code> - пользователь неактивен (не
+                совершает действий)</li>
+        </ul>
+
+        <p>Все эти события сохраняются в базе данных и могут быть
+            проанализированы для улучшения процесса оплаты.</p>
+    </body>
+</html>

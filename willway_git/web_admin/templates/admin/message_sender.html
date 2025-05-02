@@ -1,0 +1,450 @@
+{% extends 'admin/base.html' %}
+
+{% block title %}Рассылка - WillWay Админ-панель{% endblock %}
+
+{% block page_title %}Рассылка сообщений{% endblock %}
+
+{% block content %}
+<div class="py-4">
+    <div
+        class="overflow-hidden rounded-lg bg-white shadow hover:shadow-lg transition-shadow duration-300">
+        <div class="p-6">
+            <h3
+                class="text-base font-semibold leading-6 text-gray-900 mb-6">Создание
+                рассылки</h3>
+
+            <form action="{{ url_for('message_sender') }}" method="POST">
+                <!-- Выбор получателей -->
+                <div class="mb-8">
+                    <h4
+                        class="text-sm font-medium text-gray-700 mb-3 flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none"
+                            viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor"
+                            class="w-5 h-5 mr-2 text-primary">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0ZM3 19.235v-.11a6.375 6.375 0 0 1 12.75 0v.109A12.318 12.318 0 0 1 9.374 21c-2.331 0-4.512-.645-6.374-1.766Z" />
+                        </svg>
+                        Получатели
+                    </h4>
+
+                    <div
+                        class="space-y-3 bg-gray-50 p-4 rounded-md shadow-inner border border-gray-100">
+                        <div
+                            class="flex items-center hover:bg-white rounded-md p-2 transition-colors duration-200">
+                            <input id="all-users" name="broadcast_type"
+                                type="radio" value="all"
+                                class="h-4 w-4 border-gray-300 text-primary focus:ring-primary"
+                                checked>
+                            <label for="all-users"
+                                class="ml-3 block text-sm font-medium text-gray-700">
+                                Все пользователи <span
+                                    class="inline-flex items-center rounded-full bg-primary-light/10 px-2 py-0.5 text-xs font-medium text-primary-dark ml-2">{{
+                                    users|length }}</span>
+                            </label>
+                        </div>
+
+                        <div
+                            class="flex items-center hover:bg-white rounded-md p-2 transition-colors duration-200">
+                            <input id="subscribers-only" name="broadcast_type"
+                                type="radio" value="subscribers"
+                                class="h-4 w-4 border-gray-300 text-primary focus:ring-primary">
+                            <label for="subscribers-only"
+                                class="ml-3 block text-sm font-medium text-gray-700">
+                                Только подписчики <span
+                                    class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 ml-2">{{
+                                    users|selectattr('is_subscribed', 'equalto',
+                                    true)|list|length }}</span>
+                            </label>
+                        </div>
+
+                        <div
+                            class="flex items-center hover:bg-white rounded-md p-2 transition-colors duration-200">
+                            <input id="custom-users" name="broadcast_type"
+                                type="radio" value="custom"
+                                class="h-4 w-4 border-gray-300 text-primary focus:ring-primary">
+                            <label for="custom-users"
+                                class="ml-3 block text-sm font-medium text-gray-700">
+                                Выборочная рассылка
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Список пользователей для выборочной рассылки (появляется при выборе "Выборочная рассылка") -->
+                    <div id="users-list-container"
+                        class="mt-4 hidden transition-all duration-300">
+                        <div
+                            class="bg-white p-4 rounded-md shadow border border-gray-200 max-h-60 overflow-y-auto">
+                            <div class="flex items-center justify-between mb-3">
+                                <h5
+                                    class="text-sm font-medium text-gray-700 flex items-center">
+                                    <svg xmlns="http://www.w3.org/2000/svg"
+                                        fill="none" viewBox="0 0 24 24"
+                                        stroke-width="1.5" stroke="currentColor"
+                                        class="w-4 h-4 mr-2 text-primary">
+                                        <path stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" />
+                                    </svg>
+                                    Выберите пользователей для рассылки
+                                </h5>
+                                <button type="button" id="select-all-users"
+                                    class="text-sm text-primary hover:text-primary-dark hover:underline transition-colors duration-200 flex items-center">
+                                    <svg xmlns="http://www.w3.org/2000/svg"
+                                        fill="none" viewBox="0 0 24 24"
+                                        stroke-width="1.5" stroke="currentColor"
+                                        class="w-4 h-4 mr-1">
+                                        <path stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                    </svg>
+                                    Выбрать всех
+                                </button>
+                            </div>
+
+                            <div
+                                class="space-y-2 mt-3 divide-y divide-gray-100">
+                                {% for user in users %}
+                                <div
+                                    class="flex items-center hover:bg-gray-50 p-2 rounded-md transition-colors duration-200">
+                                    <input id="user-{{ user.id }}"
+                                        name="recipients" type="checkbox"
+                                        value="{{ user.id }}"
+                                        class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary">
+                                    <label for="user-{{ user.id }}"
+                                        class="ml-3 block text-sm text-gray-700 flex items-center">
+                                        <span class="font-medium">{{
+                                            user.username or 'Пользователь ' ~
+                                            user.id }}</span>
+                                        {% if user.is_subscribed %}
+                                        <span
+                                            class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 ml-2">Подписчик</span>
+                                        {% endif %}
+                                    </label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Текст сообщения -->
+                <div class="mb-6">
+                    <label for="message_text"
+                        class="block text-sm font-medium text-gray-700 mb-3 flex items-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none"
+                            viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor"
+                            class="w-5 h-5 mr-2 text-primary">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 0 1 .865-.501 48.172 48.172 0 0 0 3.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z" />
+                        </svg>
+                        Текст сообщения
+                    </label>
+                    <div class="relative rounded-md shadow-sm">
+                        <textarea id="message_text" name="message_text" rows="5"
+                            class="block w-full rounded-md border-0 py-3 px-4 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-primary sm:text-sm resize-none"
+                            placeholder="Введите текст сообщения здесь..."
+                            required></textarea>
+                    </div>
+                </div>
+
+                <!-- Предпросмотр текста сообщения -->
+                <div class="mb-8">
+                    <div class="flex items-center justify-between mb-3">
+                        <div
+                            class="text-sm font-medium text-gray-700 flex items-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none"
+                                viewBox="0 0 24 24" stroke-width="1.5"
+                                stroke="currentColor"
+                                class="w-5 h-5 mr-2 text-primary">
+                                <path stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                                <path stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                            </svg>
+                            Предпросмотр
+                        </div>
+                        <div class="flex items-center text-xs text-gray-500">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none"
+                                viewBox="0 0 24 24" stroke-width="1.5"
+                                stroke="currentColor"
+                                class="w-4 h-4 mr-1 text-gray-400">
+                                <path stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+                            </svg>
+                            Telegram поддерживает базовое форматирование
+                            Markdown
+                        </div>
+                    </div>
+                    <div id="preview-text"
+                        class="bg-gray-50 p-5 rounded-md border border-gray-200 min-h-[100px] max-h-60 overflow-y-auto shadow-inner prose prose-sm max-w-none"></div>
+                </div>
+
+                <!-- Настройки кнопки для сообщения -->
+                <div class="mb-8">
+                    <div class="flex items-center mb-3">
+                        <input id="add-button" type="checkbox"
+                            class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary">
+                        <label for="add-button"
+                            class="ml-3 block text-sm font-medium text-gray-700 flex items-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none"
+                                viewBox="0 0 24 24" stroke-width="1.5"
+                                stroke="currentColor"
+                                class="w-5 h-5 mr-2 text-primary">
+                                <path stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z" />
+                            </svg>
+                            Добавить кнопку к сообщению
+                        </label>
+                    </div>
+
+                    <div id="button-fields"
+                        class="mt-4 space-y-4 hidden bg-white p-4 rounded-md shadow border border-gray-200 transition-all duration-300 ease-in-out">
+                        <div>
+                            <label for="button_text"
+                                class="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg"
+                                    fill="none" viewBox="0 0 24 24"
+                                    stroke-width="1.5" stroke="currentColor"
+                                    class="w-4 h-4 mr-2 text-gray-500">
+                                    <path stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+                                </svg>
+                                Текст кнопки
+                            </label>
+                            <div class="relative rounded-md shadow-sm">
+                                <input type="text" id="button_text"
+                                    name="button_text"
+                                    class="block w-full rounded-md border-0 py-2 pl-3 pr-3 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-primary sm:text-sm"
+                                    placeholder="Например: Перейти на сайт">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label for="button_url"
+                                class="block text-sm font-medium text-gray-700 mb-2 flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg"
+                                    fill="none" viewBox="0 0 24 24"
+                                    stroke-width="1.5" stroke="currentColor"
+                                    class="w-4 h-4 mr-2 text-gray-500">
+                                    <path stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
+                                </svg>
+                                URL кнопки
+                            </label>
+                            <div class="relative rounded-md shadow-sm">
+                                <input type="url" id="button_url"
+                                    name="button_url"
+                                    class="block w-full rounded-md border-0 py-2 pl-3 pr-3 text-gray-900 ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-primary sm:text-sm"
+                                    placeholder="https://example.com">
+                            </div>
+                        </div>
+
+                        <div id="button-preview"
+                            class="mt-2 p-3 bg-gray-50 rounded-md border border-gray-100 hidden">
+                            <p class="text-xs text-gray-500 mb-2">Предпросмотр
+                                кнопки:</p>
+                            <div class="flex">
+                                <a id="preview-button" href="#"
+                                    class="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-white bg-primary rounded-md shadow-sm hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
+                                    Текст кнопки
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Кнопка отправки -->
+                <div class="flex justify-end">
+                    <button type="submit"
+                        class="inline-flex items-center rounded-md bg-primary px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary transition-all duration-300">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none"
+                            viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor" class="w-5 h-5 mr-2">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5" />
+                        </svg>
+                        Отправить сообщение
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+    /* Стилизация скроллбара */
+    .overflow-y-auto::-webkit-scrollbar {
+        width: 6px;
+    }
+    
+    .overflow-y-auto::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 10px;
+    }
+    
+    .overflow-y-auto::-webkit-scrollbar-thumb {
+        background: rgba(21, 76, 71, 0.4);
+        border-radius: 10px;
+    }
+    
+    .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+        background: rgba(21, 76, 71, 0.6);
+    }
+    
+    /* Анимации для элементов формы */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    #button-fields {
+        transform-origin: top;
+    }
+    
+    /* Стили для предпросмотра */
+    #preview-text {
+        transition: background-color 0.3s ease;
+    }
+    
+    #preview-text:empty::before {
+        content: "Здесь будет отображаться предпросмотр вашего сообщения";
+        color: #9ca3af;
+        font-style: italic;
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Элементы формы
+    const broadcastTypeRadios = document.querySelectorAll('input[name="broadcast_type"]');
+    const usersListContainer = document.getElementById('users-list-container');
+    const selectAllUsersBtn = document.getElementById('select-all-users');
+    const userCheckboxes = document.querySelectorAll('input[name="recipients"]');
+    
+    const messageTextarea = document.getElementById('message_text');
+    const previewText = document.getElementById('preview-text');
+    
+    const addButtonCheckbox = document.getElementById('add-button');
+    const buttonFields = document.getElementById('button-fields');
+    const buttonPreview = document.getElementById('button-preview');
+    const previewButton = document.getElementById('preview-button');
+    const buttonText = document.getElementById('button_text');
+    const buttonUrl = document.getElementById('button_url');
+    
+    // Обработчик выбора типа рассылки
+    broadcastTypeRadios.forEach(radio => {
+        radio.addEventListener('change', function() {
+            if (this.value === 'custom') {
+                usersListContainer.classList.remove('hidden');
+                usersListContainer.style.maxHeight = '400px';
+                usersListContainer.style.opacity = '1';
+            } else {
+                usersListContainer.style.maxHeight = '0';
+                usersListContainer.style.opacity = '0';
+                setTimeout(() => {
+                    usersListContainer.classList.add('hidden');
+                }, 300);
+            }
+        });
+    });
+    
+    // Обработчик кнопки "Выбрать всех"
+    selectAllUsersBtn.addEventListener('click', function() {
+        const areAllChecked = [...userCheckboxes].every(cb => cb.checked);
+        
+        userCheckboxes.forEach(checkbox => {
+            checkbox.checked = !areAllChecked;
+        });
+        
+        this.innerHTML = areAllChecked ? 
+            '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg> Выбрать всех' : 
+            '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4 mr-1"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12H9m12 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg> Снять выбор';
+    });
+    
+    // Обработчик чекбокса "Добавить кнопку"
+    addButtonCheckbox.addEventListener('change', function() {
+        if (this.checked) {
+            buttonFields.classList.remove('hidden');
+            setTimeout(() => {
+                buttonFields.style.maxHeight = '300px';
+                buttonFields.style.opacity = '1';
+                
+                if (buttonText.value.trim() !== '') {
+                    buttonPreview.classList.remove('hidden');
+                }
+            }, 10);
+        } else {
+            buttonFields.style.maxHeight = '0';
+            buttonFields.style.opacity = '0';
+            buttonPreview.classList.add('hidden');
+            setTimeout(() => {
+                buttonFields.classList.add('hidden');
+            }, 300);
+        }
+    });
+    
+    // Обработчики полей кнопки для предпросмотра
+    buttonText.addEventListener('input', updateButtonPreview);
+    buttonUrl.addEventListener('input', updateButtonPreview);
+    
+    function updateButtonPreview() {
+        const text = buttonText.value.trim();
+        const url = buttonUrl.value.trim();
+        
+        if (text) {
+            previewButton.textContent = text;
+            buttonPreview.classList.remove('hidden');
+            
+            if (url) {
+                previewButton.href = url;
+            } else {
+                previewButton.href = '#';
+            }
+        } else {
+            buttonPreview.classList.add('hidden');
+        }
+    }
+    
+    // Обработчик ввода текста сообщения для предпросмотра
+    messageTextarea.addEventListener('input', function() {
+        // Простая обработка Markdown для предпросмотра
+        let previewContent = this.value
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // **Жирный текст**
+            .replace(/\*(.*?)\*/g, '<em>$1</em>') // *Курсив*
+            .replace(/`(.*?)`/g, '<code class="px-1 py-0.5 bg-gray-200 rounded text-sm">$1</code>') // `Код`
+            .replace(/\n/g, '<br>'); // Переносы строк
+        
+        previewText.innerHTML = previewContent;
+        
+        // Эффект набора текста для предпросмотра
+        if (this.value.trim() !== '') {
+            previewText.classList.add('bg-white');
+            previewText.classList.remove('bg-gray-50');
+        } else {
+            previewText.classList.remove('bg-white');
+            previewText.classList.add('bg-gray-50');
+        }
+    });
+    
+    // Анимация при открытии страницы
+    document.addEventListener('DOMContentLoaded', function() {
+        const formElements = document.querySelectorAll('form > div');
+        formElements.forEach((el, index) => {
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(20px)';
+            el.style.animation = `fadeIn 0.5s ease forwards ${index * 0.1}s`;
+        });
+    });
+</script>
+{% endblock %}
