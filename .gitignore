@@ -85,7 +85,6 @@ celerybeat-schedule
 *.sage.py
 
 # Environments
-.env
 .venv
 env/
 venv/
@@ -121,7 +120,3 @@ Thumbs.db
 
 # Файл с настройками бота и токеном
 config.json
-
-# Устаревшие файлы после рефакторинга
-# Закомментируйте следующие строки, если эти файлы еще нужны
-# bot/handlers.py

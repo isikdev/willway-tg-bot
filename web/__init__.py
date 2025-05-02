@@ -24,6 +24,11 @@ def create_app():
     # app.config['SERVER_NAME'] = os.getenv('SERVER_NAME', 'api-willway.ru')
     app.config['PREFERRED_URL_SCHEME'] = 'https'
     
+    # Добавляем контекстный процессор для передачи bot_username во все шаблоны
+    @app.context_processor
+    def inject_bot_username():
+        return {'bot_username': os.getenv('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')}
+    
     # Инициализация базы данных SQLAlchemy
     init_flask_db(app)
     logger.info("Инициализирована база данных Flask-SQLAlchemy")
@@ -41,7 +46,14 @@ def create_app():
     # Маршрут для отдачи JS-скрипта для страницы успешной оплаты
     @app.route('/static/js/tilda-success.js')
     def serve_tilda_success():
-        return send_from_directory(os.path.join(app.root_path, 'static/js'), 'tilda-success.js')
+        response = send_from_directory(os.path.join(app.root_path, 'static/js'), 'tilda-success.js')
+        # Добавляем заголовок с Content-Type для JavaScript
+        response.headers['Content-Type'] = 'application/javascript'
+        # Добавляем переменную BOT_USERNAME в начало JS файла
+        bot_username = os.getenv('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')
+        js_script = f"window.BOT_USERNAME = '{bot_username}';\n" + response.get_data(as_text=True)
+        response.set_data(js_script)
+        return response
     
     # Маршрут для проверки работы сервера
     @app.route('/health')

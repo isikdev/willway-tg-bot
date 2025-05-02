@@ -81,18 +81,15 @@ TOKEN = os.getenv('BOT_TOKEN')
     ADDITIONAL_GOAL, 
     WORK_FORMAT, 
     SPORT_FREQUENCY, 
-    EMAIL,       # Новый этап для ввода email
-    PHONE,       # Новый этап для ввода телефона
-    PASSWORD,    # Новый этап для создания пароля
     PAYMENT, 
-    MAIN,  # Новое состояние для главного меню
+    MAIN, 
     GPT_ASSISTANT,
     SUBSCRIPTION,
     SUPPORT,
     INVITE,
     MENU,
     SUPPORT_OPTIONS
-) = range(19)
+) = range(16)
 
 # Airtable отключен
 logger.info("Airtable API отключено")
@@ -1018,18 +1015,55 @@ def start_survey(update: Update, context: CallbackContext) -> int:
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    if update.callback_query:
-        bot_message = context.bot.send_message(
-            chat_id=chat_id,
-            text=f"Выберите ваш пол:",
-            reply_markup=reply_markup
-        )
-    else:
-        bot_message = context.bot.send_message(
-            chat_id=chat_id,
-            text=f"Выберите ваш пол:",
-            reply_markup=reply_markup
-        )
+    # Используем изображение 1_POL.jpg для первого вопроса
+    image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'img', '1_POL.jpg')
+    
+    try:
+        if os.path.exists(image_path):
+            with open(image_path, 'rb') as photo:
+                if update.callback_query:
+                    bot_message = context.bot.send_photo(
+                        chat_id=chat_id,
+                        photo=photo,
+                        caption="Выберите ваш пол:",
+                        reply_markup=reply_markup
+                    )
+                else:
+                    bot_message = context.bot.send_photo(
+                        chat_id=chat_id,
+                        photo=photo,
+                        caption="Выберите ваш пол:",
+                        reply_markup=reply_markup
+                    )
+                logger.info(f"[SURVEY_START] Отправлено фото с запросом пола пользователю {user_id}")
+        else:
+            logger.warning(f"[SURVEY_ERROR] Файл изображения не найден: {image_path}")
+            if update.callback_query:
+                bot_message = context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"Выберите ваш пол:",
+                    reply_markup=reply_markup
+                )
+            else:
+                bot_message = context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"Выберите ваш пол:",
+                    reply_markup=reply_markup
+                )
+    except Exception as e:
+        logger.error(f"[SURVEY_ERROR] Ошибка при отправке изображения пола: {e}")
+        if update.callback_query:
+            bot_message = context.bot.send_message(
+                chat_id=chat_id,
+                text=f"Выберите ваш пол:",
+                reply_markup=reply_markup
+            )
+        else:
+            bot_message = context.bot.send_message(
+                chat_id=chat_id,
+                text=f"Выберите ваш пол:",
+                reply_markup=reply_markup
+            )
     
     context.user_data['bot_messages'].append(bot_message.message_id)
     
@@ -1666,113 +1700,7 @@ def sport_frequency(update: Update, context: CallbackContext) -> int:
     
     return ConversationHandler.END
 
-def email(update: Update, context: CallbackContext) -> int:
-    """Сохраняем email и переходим к вводу телефона."""
-    user_email = update.message.text.strip()
-    
-    # Простая валидация email
-    if '@' not in user_email or '.' not in user_email:
-        update.message.reply_text("Пожалуйста, введите\nкорректный email:")
-        return EMAIL
-    
-    context.user_data['email'] = user_email
-    
-    # Обновляем информацию в базе данных
-    session = get_session()
-    user = session.query(User).filter(User.user_id == update.effective_user.id).first()
-    if user:
-        user.email = user_email
-        session.commit()
-    session.close()
-    
-    # Переходим к вводу телефона
-    update.message.reply_text(
-        "Теперь, пожалуйста, введите ваш номер телефона\nв формате +7XXXXXXXXXX:"
-    )
-    return PHONE
 
-def phone(update: Update, context: CallbackContext) -> int:
-    """Сохраняем телефон и переходим к созданию пароля."""
-    user_phone = update.message.text.strip()
-    
-    # Простая валидация телефона
-    if not (user_phone.startswith('+7') or user_phone.startswith('8')) or len(user_phone.replace('+', '').replace('-', '').replace(' ', '')) < 10:
-        update.message.reply_text("Пожалуйста, введите корректный номер телефона\nв формате +7XXXXXXXXXX:")
-        return PHONE
-    
-    context.user_data['phone'] = user_phone
-    
-    # Обновляем информацию в базе данных
-    session = get_session()
-    user = session.query(User).filter(User.user_id == update.effective_user.id).first()
-    if user:
-        user.phone = user_phone
-        session.commit()
-    session.close()
-    
-    # Переходим к созданию пароля
-    update.message.reply_text(
-        "Отлично! Теперь придумайте пароль для вашего аккаунта\n(минимум 6 символов):"
-    )
-    return PASSWORD
-
-def password(update: Update, context: CallbackContext) -> int:
-    """Сохраняем пароль и переходим к страницe оплаты в Tilda."""
-    user_password = update.message.text.strip()
-    user_id = update.effective_user.id
-    
-    # Простая валидация пароля
-    if len(user_password) < 6:
-        update.message.reply_text("Пароль должен содержать минимум 6 символов. Попробуйте еще раз:")
-        return PASSWORD
-    
-    context.user_data['password'] = user_password
-    
-    # Обновляем информацию в базе данных
-    session = get_session()
-    user = session.query(User).filter(User.user_id == user_id).first()
-    if user:
-        user.password = user_password
-        user.registered = True  # Отмечаем, что регистрация завершена
-        session.commit()
-    session.close()
-    
-    # Проверяем, есть ли у пользователя активная подписка
-    is_subscribed, paid_till = check_subscription_status(user_id)
-    
-    if is_subscribed:
-        # Если подписка уже активна, обновляем статус в базе и показываем меню
-        session = get_session()
-        user = session.query(User).filter(User.user_id == user_id).first()
-        if user:
-            user.is_subscribed = True
-            # Преобразуем строку даты в объект datetime, если paid_till не None
-            if paid_till:
-                try:
-                    expiry_date = datetime.strptime(paid_till, "%Y-%m-%d")
-                    user.subscription_expires = expiry_date
-                except (ValueError, TypeError):
-                    user.subscription_expires = datetime.now(TIMEZONE) + timedelta(days=30)  # По умолчанию 30 дней
-            session.commit()
-        session.close()
-        
-        update.message.reply_text(
-            "Регистрация успешно завершена! 👍\n\n"
-            "У вас уже есть активная подписка, доступ ко всем функциям открыт.",
-            reply_markup=get_main_keyboard()
-        )
-    else:
-        # Если подписка не активна, отправляем на страницу оплаты
-        update.message.reply_text(
-            "Регистрация успешно завершена! 👍\n\n"
-            "Для доступа к полному функционалу бота необходимо оформить подписку:",
-            reply_markup=get_payment_keyboard(user_id)
-        )
-    
-    # Синхронизируем данные с Airtable
-    sync_user_with_airtable(user_id)
-    
-    return ConversationHandler.END
 
 # Функция для синхронизации данных пользователя с Airtable
 def sync_user_with_airtable(user_id):
@@ -1947,7 +1875,7 @@ def handle_menu_callback(update: Update, context: CallbackContext):
             ).count()
             
             # Получаем имя бота
-            bot_username = "willway_super_bot"  # Значение по умолчанию
+            bot_username = os.environ.get('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')  # Получаем из переменной окружения
             try:
                 bot_info = context.bot.get_me()
                 bot_username = bot_info.username
@@ -2002,7 +1930,7 @@ def handle_menu_callback(update: Update, context: CallbackContext):
         
         try:
             # Получаем имя бота
-            bot_username = "willway_super_bot"  # Значение по умолчанию
+            bot_username = os.environ.get('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')  # Получаем из переменной окружения
             try:
                 bot_info = context.bot.get_me()
                 bot_username = bot_info.username
@@ -2172,10 +2100,10 @@ def handle_menu_callback(update: Update, context: CallbackContext):
             
             # Определяем стоимость и период подписки
             if subscription_type == "monthly":
-                amount = "2 222 ₽"
+                amount = f"{MONTHLY_SUBSCRIPTION_PRICE:,}".replace(",", " ") + " ₽"
                 period = "30 дней"
             else:  # yearly
-                amount = "17 777 ₽"
+                amount = f"{YEARLY_SUBSCRIPTION_PRICE:,}".replace(",", " ") + " ₽"
                 period = "365 дней"
             
             query.edit_message_text(
@@ -2193,12 +2121,20 @@ def handle_menu_callback(update: Update, context: CallbackContext):
                 session.close()
             
             # Если тип подписки неизвестен, предлагаем выбрать
+            # Форматируем цены с разделителями тысяч и символом рубля
+            monthly_price = f"{MONTHLY_SUBSCRIPTION_PRICE:,}".replace(",", " ") + " ₽"
+            yearly_price = f"{YEARLY_SUBSCRIPTION_PRICE:,}".replace(",", " ") + " ₽"
+            
+            # Расчет процента экономии при годовой подписке
+            monthly_yearly = MONTHLY_SUBSCRIPTION_PRICE * 12
+            savings_percent = round((monthly_yearly - YEARLY_SUBSCRIPTION_PRICE) / monthly_yearly * 100)
+            
             query.edit_message_text(
                 text=(
                     "💎 *Подписка WILLWAY*\n\n"
                     "Выберите подходящий вам тариф:\n\n"
-                    "• *Месяц* - 2 222 ₽\n"
-                    "• *Год* - 17 777 ₽ (экономия 33%)\n\n"
+                    f"• *Месяц* - {monthly_price}\n"
+                    f"• *Год* - {yearly_price} (экономия {savings_percent}%)\n\n"
                     "Подписка открывает доступ ко всем функциям бота."
                 ),
                 parse_mode=ParseMode.MARKDOWN,
@@ -3340,7 +3276,8 @@ __all__ = ['get_bot_config']
 
 def get_referral_keyboard(user_id, ref_code):
     """Генерирует клавиатуру и реферальную ссылку"""
-    bot_username = "willway_super_bot"
+    # Получаем имя бота из переменной окружения
+    bot_username = os.environ.get('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')
     referral_link = f"https://t.me/{bot_username}?start={ref_code}"
     
     # Создаем клавиатуру

@@ -41,6 +41,11 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 init_flask_db(app)
 migrate = Migrate(app, db)
 
+# Добавляем контекстный процессор для передачи bot_username во все шаблоны
+@app.context_processor
+def inject_bot_username():
+    return {'bot_username': os.getenv('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')}
+
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -183,8 +188,9 @@ def admin_dashboard():
         conversion_rate = (subscriptions_this_month / registrations_this_month) * 100
     
     # Рассчитываем приблизительный доход
-    # Предполагаем, что стоимость подписки 990 рублей
-    monthly_revenue = subscriptions_this_month * 990
+    # Используем цену из переменной окружения или значение по умолчанию
+    subscription_price = int(os.environ.get('MONTHLY_SUBSCRIPTION_PRICE', 990))
+    monthly_revenue = subscriptions_this_month * subscription_price
     
     db_session.close()
     
@@ -221,8 +227,6 @@ def get_user(user_id):
         'id': user.id,
         'user_id': user.user_id,
         'username': user.username,
-        'email': user.email,
-        'phone': user.phone,
         'gender': user.gender,
         'age': user.age,
         'height': user.height,
@@ -234,9 +238,7 @@ def get_user(user_id):
         'registration_date': user.registration_date.strftime('%d.%m.%Y') if user.registration_date else None,
         'is_subscribed': user.is_subscribed,
         'subscription_type': user.subscription_type,
-        'subscription_expires': user.subscription_expires.strftime('%d.%m.%Y') if user.subscription_expires else None,
-        'user_choices': user.user_choices,
-        'payment_declined_reason': user.payment_declined_reason
+        'subscription_expires': user.subscription_expires.strftime('%d.%m.%Y') if user.subscription_expires else None
     }
     
     db_session.close()
