@@ -91,8 +91,8 @@ TOKEN = os.getenv('BOT_TOKEN')
     SUPPORT_OPTIONS
 ) = range(16)
 
-# Airtable отключен
-logger.info("Airtable API отключено")
+# API интеграции отключены
+logger.info("API интеграции отключены")
 
 BOT_CONFIG_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'bot_config.json')
 
@@ -690,6 +690,63 @@ def start(update: Update, context: CallbackContext) -> int:
     referral_code = args[0] if args else None
     
     logger.info(f"[START] Пользователь {user_id} вызвал команду /start с аргументами: {args}")
+    
+    # Обработка параметра успешной оплаты
+    if referral_code and referral_code.startswith('payment_success_'):
+        try:
+            # Извлекаем ID пользователя из параметра
+            payment_user_id = referral_code.replace('payment_success_', '')
+            logger.info(f"[PAYMENT_SUCCESS] Получен параметр успешной оплаты для пользователя {payment_user_id}")
+            
+            # Если ID в параметре совпадает с ID текущего пользователя
+            if str(payment_user_id) == str(user_id):
+                # Активируем подписку для пользователя
+                session = get_session()
+                user = session.query(User).filter(User.user_id == user_id).first()
+                
+                if user:
+                    # Проверяем, не активна ли уже подписка
+                    if not user.is_subscribed or (user.subscription_expires and user.subscription_expires < datetime.now(TIMEZONE)):
+                        # Активируем месячную подписку
+                        user.is_subscribed = True
+                        user.subscription_type = "monthly"
+                        user.subscription_expires = datetime.now(TIMEZONE) + timedelta(days=30)
+                        user.payment_status = "completed"
+                        
+                        session.commit()
+                        logger.info(f"[PAYMENT_SUCCESS] Активирована подписка для пользователя {user_id}")
+                        
+                        # Отправляем сообщение об успешной активации подписки
+                        update.message.reply_text(
+                            "🎉 Поздравляем! Ваша подписка успешно активирована.\n\n"
+                            "Теперь вам доступны все функции бота, включая Health ассистента и персональные программы.",
+                            reply_markup=get_main_keyboard()
+                        )
+                        
+                        # Отправляем сообщения об успешной оплате
+                        send_successful_payment_messages(update, context, "active")
+                    else:
+                        logger.info(f"[PAYMENT_SUCCESS] Подписка уже активна для пользователя {user_id}")
+                        update.message.reply_text(
+                            "У вас уже есть активная подписка! Спасибо за использование нашего сервиса.",
+                            reply_markup=get_main_keyboard()
+                        )
+                    
+                    # Показываем меню в любом случае
+                    update.message.reply_text(
+                        "Главное меню:",
+                        reply_markup=InlineKeyboardMarkup(menu_keyboard())
+                    )
+                    
+                    session.close()
+                    return ConversationHandler.END
+                
+                session.close()
+            else:
+                logger.warning(f"[PAYMENT_SUCCESS] Несоответствие ID пользователей: параметр {payment_user_id}, фактический {user_id}")
+        except Exception as e:
+            logger.error(f"[PAYMENT_SUCCESS] Ошибка при обработке успешной оплаты: {str(e)}")
+    
     if referral_code:
         logger.info(f"[REFERRAL] Обнаружен реферальный код: {referral_code}")
     
@@ -1611,8 +1668,6 @@ def sport_frequency(update: Update, context: CallbackContext) -> int:
         session.commit()
     session.close()
     
-    sync_user_with_airtable(user_id)
-    
     is_subscribed, paid_till = check_subscription_status(user_id)
     
     if 'bot_messages' in context.user_data:
@@ -1700,16 +1755,6 @@ def sport_frequency(update: Update, context: CallbackContext) -> int:
     
     return ConversationHandler.END
 
-
-
-# Функция для синхронизации данных пользователя с Airtable
-def sync_user_with_airtable(user_id):
-    """
-    Функция-заглушка вместо оригинальной функции синхронизации с Airtable.
-    Airtable отключен, поэтому просто логируем информацию и возвращаем True.
-    """
-    logger.info(f"Airtable отключен, синхронизация для пользователя {user_id} пропущена")
-    return True
 
 def payment(update: Update, context: CallbackContext) -> int:
     """
@@ -2049,20 +2094,31 @@ def handle_menu_callback(update: Update, context: CallbackContext):
         # Создаем ссылку на оплату на Tilda
         payment_url = payment_handler.generate_tilda_payment_link(user_data, subscription_type)
         
-        # Отправляем сообщение с ссылкой на оплату
-        query.edit_message_text(
-            text=f"Для оплаты {'месячной' if subscription_type == 'monthly' else 'годовой'} подписки нажмите на кнопку ниже.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("Перейти к оплате", url=payment_url)],
-                [InlineKeyboardButton("Отменить", callback_data="cancel_payment")]
-            ])
-        )
-        
-        # Логируем событие создания ссылки на оплату
-        logger.info(f"[PAYMENT_LINK_CREATED] Для пользователя {user_id} создана ссылка на оплату: {payment_url}")
-        
-        # Устанавливаем напоминание о незавершенной оплате
-        schedule_payment_reminder(context, user_id, delay_minutes=30)
+        # Проверяем, что ссылка успешно создана
+        if payment_url:
+            # Отправляем сообщение с ссылкой на оплату
+            query.edit_message_text(
+                text=f"Для оплаты {'месячной' if subscription_type == 'monthly' else 'годовой'} подписки нажмите на кнопку ниже.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Перейти к оплате", url=payment_url)],
+                    [InlineKeyboardButton("Отменить", callback_data="cancel_payment")]
+                ])
+            )
+            
+            # Логируем событие создания ссылки на оплату
+            logger.info(f"[PAYMENT_LINK_CREATED] Для пользователя {user_id} создана ссылка на оплату: {payment_url}")
+            
+            # Устанавливаем напоминание о незавершенной оплате
+            schedule_payment_reminder(context, user_id, delay_minutes=30)
+        else:
+            # Если не удалось создать ссылку, показываем сообщение об ошибке
+            query.edit_message_text(
+                text="Извините, в данный момент система оплаты недоступна. Пожалуйста, попробуйте позже.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]
+                ])
+            )
+            logger.error(f"[PAYMENT_ERROR] Не удалось создать ссылку на оплату для пользователя {user_id} (тип: {subscription_type})")
         
         return
     
@@ -2095,27 +2151,39 @@ def handle_menu_callback(update: Update, context: CallbackContext):
             
             # Создаем ссылку на оплату соответствующего типа подписки
             payment_url = generate_payment_url(user_id, subscription_type)
-            keyboard = [[InlineKeyboardButton("Оплатить", url=payment_url)],
-                        [InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]]
             
-            # Определяем стоимость и период подписки
-            if subscription_type == "monthly":
-                amount = f"{MONTHLY_SUBSCRIPTION_PRICE:,}".replace(",", " ") + " ₽"
-                period = "30 дней"
-            else:  # yearly
-                amount = f"{YEARLY_SUBSCRIPTION_PRICE:,}".replace(",", " ") + " ₽"
-                period = "365 дней"
-            
-            query.edit_message_text(
-                text=(
-                    f"💎 *Продление {subscription_type} подписки WILLWAY*\n\n"
-                    f"• Стоимость: {amount}\n"
-                    f"• Период: {period}\n\n"
-                    f"Нажмите кнопку ниже, чтобы продлить подписку."
-                ),
-                parse_mode=ParseMode.MARKDOWN,
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+            # Проверяем, что ссылка успешно создана
+            if payment_url:
+                keyboard = [[InlineKeyboardButton("Оплатить", url=payment_url)],
+                            [InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]]
+                
+                # Определяем стоимость и период подписки
+                if subscription_type == "monthly":
+                    amount = f"{MONTHLY_SUBSCRIPTION_PRICE:,}".replace(",", " ") + " ₽"
+                    period = "30 дней"
+                else:  # yearly
+                    amount = f"{YEARLY_SUBSCRIPTION_PRICE:,}".replace(",", " ") + " ₽"
+                    period = "365 дней"
+                
+                query.edit_message_text(
+                    text=(
+                        f"💎 *Продление {subscription_type} подписки WILLWAY*\n\n"
+                        f"• Стоимость: {amount}\n"
+                        f"• Период: {period}\n\n"
+                        f"Нажмите кнопку ниже, чтобы продлить подписку."
+                    ),
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            else:
+                # Если не удалось создать ссылку на оплату
+                query.edit_message_text(
+                    text="Извините, в данный момент система оплаты недоступна. Пожалуйста, попробуйте позже.",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]
+                    ])
+                )
+                logger.error(f"[PAYMENT_ERROR] Не удалось создать ссылку на продление подписки для пользователя {user_id} (тип: {subscription_type})")
         else:
             if session:
                 session.close()
@@ -2147,9 +2215,14 @@ def handle_menu_callback(update: Update, context: CallbackContext):
     # Можно добавить дополнительные обработчики для других кнопок здесь
 
 def generate_payment_url(user_id, subscription_type):
-    """Заглушка для генерации URL оплаты (система оплаты отключена)"""
-    logger.info(f"[PAYMENT_DISABLED] Попытка генерации URL оплаты (пользователь {user_id}, тип {subscription_type})")
-    return None
+    """Генерирует URL для оплаты подписки"""
+    logger.info(f"[PAYMENT] Генерация URL оплаты (пользователь {user_id}, тип {subscription_type})")
+    # Формируем базовый URL страницы оплаты
+    payment_url = "https://willway.pro/payment"
+    # Добавляем только параметр ID пользователя
+    full_url = f"{payment_url}?tgid={user_id}"
+    logger.info(f"[PAYMENT] Сгенерирован URL: {full_url}")
+    return full_url
 
 def handle_payment_success(update: Update, context: CallbackContext, query=None) -> int:
     """Заглушка для обработки успешной оплаты (система оплаты отключена)"""
@@ -2610,10 +2683,9 @@ def check_subscription(update: Update, context: CallbackContext):
     return ConversationHandler.END
 
 # Функция для связывания аккаунта Telegram с данными из Airtable
-def link_telegram_with_airtable(update: Update, context: CallbackContext):
+def link_telegram_with_tilda(update: Update, context: CallbackContext):
     """
-    Заглушка для функции связывания аккаунта с Airtable.
-    Теперь просто информирует пользователя о статусе подписки.
+    Проверяет статус подписки пользователя.
     """
     user_id = update.effective_user.id
     
@@ -2646,7 +2718,7 @@ def show_menu(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     logger.info(f"[MENU] Пользователь {user_id} открыл главное меню")
     
-    # Проверяем подписку в базе данных и через Airtable
+    # Проверяем подписку в базе данных
     is_subscribed = update_subscription_status(user_id, context)
     
     # Отправляем приветствие с кнопками
@@ -3126,6 +3198,7 @@ def handle_support_messages(update, context):
     main_kb = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
     if text == "Связаться с тренером":
+        # Получаем имя пользователя тренера из конфигурации
         config = get_bot_config()
         trainer_username = config.get('trainer_username', '')
         
@@ -3141,6 +3214,7 @@ def handle_support_messages(update, context):
             )
     
     elif text == "Связаться с менеджером":
+        # Получаем имя пользователя менеджера из конфигурации
         config = get_bot_config()
         manager_username = config.get('manager_username', '')
         
@@ -3232,7 +3306,18 @@ class PaymentHandler:
         pass
         
     def generate_tilda_payment_link(self, user_data, subscription_type):
-        return None
+        """Генерирует ссылку на страницу оплаты Tilda"""
+        user_id = user_data.get('user_id')
+        logger.info(f"[PAYMENT] Генерация ссылки на страницу оплаты Tilda для пользователя {user_id}")
+        
+        # Формируем базовый URL страницы оплаты
+        payment_url = "https://willway.pro/payment"
+        
+        # Добавляем только параметр ID пользователя
+        full_url = f"{payment_url}?tgid={user_id}"
+        
+        logger.info(f"[PAYMENT] Сгенерирована ссылка: {full_url}")
+        return full_url
         
     def process_webhook(self, webhook_data):
         return {'success': False, 'error': 'Платежная система отключена'}
@@ -3245,9 +3330,20 @@ class CloudPaymentAdapter:
         return None
 
 def get_payment_keyboard_inline(user_id):
+    # Формируем цены с разделителями тысяч и символом рубля
+    monthly_price = f"{MONTHLY_SUBSCRIPTION_PRICE:,}".replace(",", " ") + " ₽"
+    yearly_price = f"{YEARLY_SUBSCRIPTION_PRICE:,}".replace(",", " ") + " ₽"
+    
+    # Расчет процента экономии при годовой подписке
+    monthly_yearly = MONTHLY_SUBSCRIPTION_PRICE * 12
+    savings_percent = round((monthly_yearly - YEARLY_SUBSCRIPTION_PRICE) / monthly_yearly * 100)
+    
+    # Генерируем URL для оплаты
+    payment_url_base = "https://willway.pro/payment?tgid="
+    
     keyboard = [
-        [InlineKeyboardButton("Месячная подписка - 2 222 ₽", callback_data="payment_monthly")],
-        [InlineKeyboardButton("Годовая подписка - 17 777 ₽ (экономия 33%)", callback_data="payment_yearly")],
+        [InlineKeyboardButton(f"Месячная подписка - {monthly_price}", url=f"{payment_url_base}{user_id}")],
+        [InlineKeyboardButton(f"Годовая подписка - {yearly_price} (экономия {savings_percent}%)", url=f"{payment_url_base}{user_id}")],
         [InlineKeyboardButton("Назад в меню", callback_data="back_to_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)

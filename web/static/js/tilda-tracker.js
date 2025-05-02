@@ -49,14 +49,17 @@
         const urlParams = getURLParams();
         const localData = getLocalStorageData();
 
-        const userId = urlParams.user_id || (localData ? localData.user_id : null);
+        const userId = urlParams.tgid || (localData ? localData.user_id : null);
 
         if (!userId) {
-            console.log('User ID не найден в URL или localStorage');
+            console.log('ID пользователя Telegram не найден в URL или localStorage');
             return;
         }
 
         setLocalStorageData({ user_id: userId });
+
+        console.log('Отслеживание страницы оплаты для пользователя:', userId);
+        console.log('API URL:', API_URL);
 
         fetch(API_URL, {
             method: 'POST',
@@ -71,7 +74,12 @@
                 url: window.location.href
             })
         })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Ошибка при отправке данных: ' + response.status);
+                }
+                return response.json();
+            })
             .then(data => {
                 console.log('Данные успешно отправлены на сервер:', data);
 
@@ -85,6 +93,9 @@
     }
 
     function checkPaymentStatus(userId) {
+        console.log('Проверка статуса оплаты для пользователя:', userId);
+        console.log('API URL для проверки:', PAYMENT_CHECK_URL);
+
         fetch(PAYMENT_CHECK_URL, {
             method: 'POST',
             headers: {
@@ -95,7 +106,12 @@
                 timestamp: new Date().toISOString()
             })
         })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Ошибка при проверке статуса: ' + response.status);
+                }
+                return response.json();
+            })
             .then(data => {
                 console.log('Результат проверки статуса оплаты:', data);
             })

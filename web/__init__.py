@@ -2,6 +2,7 @@ from flask import Flask, jsonify, send_from_directory
 import os
 import logging
 from database.db import init_flask_db
+from flask_cors import CORS  # Добавляем импорт для CORS
 
 # Настройка логирования
 logging.basicConfig(
@@ -20,9 +21,17 @@ def create_app():
     # Создаем экземпляр Flask
     app = Flask(__name__)
     
+    # Разрешаем CORS для всех маршрутов и для всех доменов
+    CORS(app, resources={r"/*": {"origins": "*"}})
+    logger.info("Настроен CORS для всех доменов")
+    
     # Убираем SERVER_NAME, так как он вызывает проблемы при использовании Nginx
     # app.config['SERVER_NAME'] = os.getenv('SERVER_NAME', 'api-willway.ru')
     app.config['PREFERRED_URL_SCHEME'] = 'https'
+    
+    # Добавляем настройки базы данных
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     
     # Добавляем контекстный процессор для передачи bot_username во все шаблоны
     @app.context_processor
@@ -41,7 +50,10 @@ def create_app():
     # Маршрут для отдачи JS-скрипта для страницы тарифов
     @app.route('/static/js/tilda-tracker.js')
     def serve_tilda_tracker():
-        return send_from_directory(os.path.join(app.root_path, 'static/js'), 'tilda-tracker.js')
+        response = send_from_directory(os.path.join(app.root_path, 'static/js'), 'tilda-tracker.js')
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Content-Type'] = 'application/javascript'
+        return response
     
     # Маршрут для отдачи JS-скрипта для страницы успешной оплаты
     @app.route('/static/js/tilda-success.js')
@@ -49,6 +61,7 @@ def create_app():
         response = send_from_directory(os.path.join(app.root_path, 'static/js'), 'tilda-success.js')
         # Добавляем заголовок с Content-Type для JavaScript
         response.headers['Content-Type'] = 'application/javascript'
+        response.headers['Access-Control-Allow-Origin'] = '*'
         # Добавляем переменную BOT_USERNAME в начало JS файла
         bot_username = os.getenv('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')
         js_script = f"window.BOT_USERNAME = '{bot_username}';\n" + response.get_data(as_text=True)

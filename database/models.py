@@ -18,11 +18,11 @@ Base = declarative_base()
 def generate_access_key(length=16):
     return secrets.token_hex(length)
 
-class MessageHistory(Base):
+class MessageHistory(db.Model):
     __tablename__ = 'message_history'
     
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.user_id'), nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     role = Column(String(20), nullable=False)  # 'user' или 'assistant'
     content = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.now)
@@ -179,7 +179,7 @@ class Payment(db.Model):
     def __repr__(self):
         return f"<Payment(id={self.id}, user_id={self.user_id}, amount={self.amount}, status={self.status})>"
 
-class ChatHistory(Base):
+class ChatHistory(db.Model):
     __tablename__ = 'chat_history'
     
     id = Column(Integer, primary_key=True)
@@ -238,7 +238,7 @@ class BloggerPayment(db.Model):
     def __repr__(self):
         return f"<BloggerPayment(id={self.id}, blogger_id={self.blogger_id})>"
 
-class PendingNotification(Base):
+class PendingNotification(db.Model):
     __tablename__ = 'pending_notifications'
     
     id = Column(Integer, primary_key=True)
@@ -258,7 +258,7 @@ engine = create_engine(DATABASE_URL)
 Session = sessionmaker(bind=engine)
 
 def init_db():
-    Base.metadata.create_all(engine)
+    db.create_all()
 
 def get_session():
     return Session()

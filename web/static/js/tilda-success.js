@@ -7,7 +7,6 @@
 
 (function () {
     const API_URL = 'https://api-willway.ru/api/v1/payment/success';
-    const BOT_USERNAME = 'willwayapp_bot';
 
     function getLocalStorageData() {
         try {
@@ -43,13 +42,20 @@
 
         const container = document.querySelector('.t-container') || document.querySelector('body');
         if (container) {
+            const botUsername = window.BOT_USERNAME || 'willwayapp_bot';
+
             const button = document.createElement('div');
             button.className = 'return-to-bot';
-            button.innerHTML = '<a href="https://t.me/' + BOT_USERNAME + '?start=payment_success_' + userId + '" class="telegram-button">Вернуться в бот</a>';
+            button.innerHTML = '<a href="https://t.me/' + botUsername + '?start=payment_success_' + userId + '" class="telegram-button">Вернуться в бот</a>';
             button.style.textAlign = 'center';
             button.style.margin = '30px auto';
             button.style.fontSize = '18px';
-            container.appendChild(button);
+
+            if (container.firstChild) {
+                container.insertBefore(button, container.firstChild);
+            } else {
+                container.appendChild(button);
+            }
 
             console.log('Кнопка возврата в бот добавлена');
         }
@@ -61,14 +67,19 @@
 
         const userId = urlParams.tgid || (localData ? localData.user_id : null);
         const subscriptionType = urlParams.subscription_type || 'monthly';
-        const amount = urlParams.amount || (subscriptionType === 'monthly' ? 1555 : 13333);
+
+        const monthlyPrice = 1555;
+        const yearlyPrice = 13333;
+
+        const amount = subscriptionType === 'yearly' ? yearlyPrice : monthlyPrice;
 
         if (!userId) {
-            console.log('User ID не найден в URL или localStorage');
+            console.log('ID пользователя Telegram не найден в URL или localStorage');
             return;
         }
 
         console.log('Отправка данных об успешной оплате для пользователя:', userId);
+        console.log('API URL:', API_URL);
 
         fetch(API_URL, {
             method: 'POST',
@@ -96,11 +107,13 @@
                 addReturnToTelegramButton(userId);
 
                 setTimeout(() => {
-                    window.location.href = `https://t.me/${BOT_USERNAME}?start=payment_success_${userId}`;
+                    const botUsername = window.BOT_USERNAME || 'willwayapp_bot';
+                    window.location.href = `https://t.me/${botUsername}?start=payment_success_${userId}`;
                 }, 5000);
             })
             .catch(error => {
                 console.error('Ошибка при отправке данных об успешной оплате:', error);
+
                 addReturnToTelegramButton(userId);
             });
     }

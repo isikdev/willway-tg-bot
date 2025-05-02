@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-from bot.handlers.bot_settings import get_bot_config
+from bot.handlers import get_bot_config
 from database.models import get_session, User, Payment, ReferralUse, ReferralCode
 from flask import Blueprint, request, jsonify
 import logging
@@ -200,92 +200,63 @@ def require_api_key(f):
 @payment_bp.route('/api/v1/payment/track', methods=['POST'])
 @require_api_key
 def track_payment():
+    """
+    Отслеживает переход пользователя на страницу оплаты
+    """
     data = request.json
-    payment_logger.info(
-        f"\033[94mОтслеживание посещения страницы оплаты: {data}\033[0m")
+    payment_logger.info(f"\033[93mДанные трекера платежа: {data}\033[0m")
 
     user_id = data.get('user_id')
+    page = data.get('page', 'unknown')
+    url = data.get('url', '')
+    referrer = data.get('referrer', '')
+
     if not user_id:
         payment_logger.error(
-            "\033[91mНе указан user_id в запросе трекера платежа\033[0m")
+            "\033[91mНе указан user_id в запросе трекера\033[0m")
         return jsonify({"status": "error", "message": "User ID is required"}), 400
 
-    # Проверяем, есть ли tgid в URL
-    tgid = None
-    if 'url' in data:
-        url = data.get('url', '')
-        match = re.search(r'tgid=(\d+)', url)
-        if match:
-            tgid = int(match.group(1))
-            payment_logger.info(
-                f"\033[94mНайден Telegram ID в URL: {tgid}\033[0m")
-
-    session = get_session()
     try:
-        user = None
+        session = get_session()
+        # Ищем пользователя по ID
+        user = session.query(User).filter_by(user_id=user_id).first()
 
-        # Сначала ищем по tgid из URL, если он был найден
-        if tgid:
-            user = session.query(User).filter_by(user_id=tgid).first()
-            if user:
-                payment_logger.info(
-                    f"\033[94mНайден пользователь по Telegram ID: {tgid}\033[0m")
-
-                # Сохраняем соответствие между ID плательщика и Telegram ID
-                payment_user_mapping[str(user_id)] = {
-                    "telegram_id": tgid,
-                    "timestamp": time.time()
-                }
-                payment_logger.info(
-                    f"\033[94mСохранено соответствие: плательщик {user_id} -> Telegram {tgid}\033[0m")
-
-                # Удаляем старые записи
-                cleanup_old_mappings()
-
-        # Если пользователь не найден по tgid, ищем по user_id
+        # Если пользователь не найден, создаем нового
         if not user:
-            user = session.query(User).filter_by(user_id=user_id).first()
-
-        # Если пользователь все еще не найден, создаем нового пользователя
-        if not user:
-            payment_logger.warning(
-                f"\033[93mПользователь не найден в базе данных. Создаем нового пользователя с user_id={user_id}\033[0m")
-
-            # Если был найден tgid, используем его, иначе используем user_id из запроса
-            telegram_id = tgid if tgid else user_id
-
+            payment_logger.info(
+                f"\033[93mПользователь с ID {user_id} не найден, создаем нового\033[0m")
             user = User(
-                user_id=telegram_id,
+                user_id=user_id,
                 registration_date=datetime.now(),
-                first_interaction_time=datetime.now(),
-                registered=False  # Пользователь еще не заполнил анкету
+                payment_status='pending'
             )
             session.add(user)
-            session.flush()  # Чтобы получить ID пользователя
-            payment_logger.info(
-                f"\033[92mСоздан новый пользователь с user_id={telegram_id}\033[0m")
+            session.commit()
+            user = session.query(User).filter_by(user_id=user_id).first()
 
-            # Сохраняем соответствие между ID плательщика и Telegram ID
-            if tgid:
-                payment_user_mapping[str(user_id)] = {
-                    "telegram_id": telegram_id,
-                    "timestamp": time.time()
-                }
-                payment_logger.info(
-                    f"\033[94mСохранено соответствие: плательщик {user_id} -> Telegram {telegram_id}\033[0m")
-
+        # Обновляем статус платежа на 'pending'
         user.payment_status = 'pending'
         session.commit()
 
         payment_logger.info(
             f"\033[94mСтатус платежа для пользователя {user.user_id} изменен на 'pending'\033[0m")
 
-        return jsonify({"status": "success", "message": "Payment tracking initiated"})
+        response = jsonify({"status": "success", "message": "Payment tracking initiated"})
+        # Добавляем CORS заголовки
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        return response
     except Exception as e:
         session.rollback()
         payment_logger.error(
             f"\033[91mОшибка при отслеживании платежа: {str(e)}\033[0m")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        response = jsonify({"status": "error", "message": str(e)}), 500
+        # Добавляем CORS заголовки даже при ошибке
+        response[0].headers.add('Access-Control-Allow-Origin', '*')
+        response[0].headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response[0].headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        return response
     finally:
         session.close()
 
@@ -307,7 +278,12 @@ def payment_success():
     if not user_id:
         payment_logger.error(
             "\033[91mНе указан user_id в запросе успешной оплаты\033[0m")
-        return jsonify({"status": "error", "message": "User ID is required"}), 400
+        error_response = jsonify({"status": "error", "message": "User ID is required"}), 400
+        # Добавляем CORS заголовки к ответу с ошибкой
+        error_response[0].headers.add('Access-Control-Allow-Origin', '*')
+        error_response[0].headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        error_response[0].headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        return error_response
 
     # Проверяем, есть ли tgid в URL
     tgid = None
@@ -456,135 +432,66 @@ def payment_success():
                             # Отправляем уведомление о начислении бонуса
                             send_referral_bonus_notification(
                                 referrer.user_id, user.username or "Новый пользователь")
-                    else:
-                        # Создаем новую запись об использовании реферальной ссылки
-                        try:
-                            # Находим реферальный код пользователя
-                            ref_code = session.query(ReferralCode).filter(
-                                ReferralCode.user_id == referrer.id,
-                                ReferralCode.is_active == True
-                            ).first()
-
-                            if ref_code:
-                                try:
-                                    # Пробуем создать запись с новой структурой
-                                    new_ref_use = ReferralUse(
-                                        code_id=ref_code.id,  # Обновленное название поля
-                                        user_id=user.id,
-                                        referrer_id=referrer.id,
-                                        subscription_purchased=True,
-                                        purchase_date=datetime.now()
-                                    )
-                                    session.add(new_ref_use)
-                                    payment_logger.info(
-                                        f"\033[93m[REFERRAL] Создана новая запись использования реферальной ссылки с обновленной структурой\033[0m")
-                                except Exception as new_struct_error:
-                                    payment_logger.warning(
-                                        f"\033[93m[REFERRAL] Ошибка при создании записи с обновленной структурой: {str(new_struct_error)}\033[0m")
-
-                                    # Пробуем создать запись со старой структурой
-                                    try:
-                                        new_ref_use = ReferralUse(
-                                            referral_code_id=ref_code.id,
-                                            user_id=user.id,
-                                            referrer_id=referrer.id,
-                                            # Для обратной совместимости
-                                            referred_id=int(user_id),
-                                            subscription_purchased=True,
-                                            purchase_date=datetime.now()
-                                        )
-                                        session.add(new_ref_use)
-                                        payment_logger.info(
-                                            f"\033[93m[REFERRAL] Создана новая запись использования реферальной ссылки со старой структурой\033[0m")
-                                    except Exception as old_struct_error:
-                                        payment_logger.error(
-                                            f"\033[91m[REFERRAL] Ошибка при создании записи со старой структурой: {str(old_struct_error)}\033[0m")
-                                        raise old_struct_error  # Передаем ошибку дальше
-
-                                # Начисляем бонус реферреру
-                                if referrer.is_subscribed and referrer.subscription_expires:
-                                    referrer.subscription_expires += timedelta(
-                                        days=30)
-                                    payment_logger.info(
-                                        f"\033[92m[REFERRAL_BONUS] Начислен бонус +30 дней пользователю {referrer.user_id}. Новая дата окончания: {referrer.subscription_expires}\033[0m")
-                                    # Отправляем уведомление о начислении бонуса
-                                    send_referral_bonus_notification(
-                                        referrer.user_id, user.username or "Новый пользователь")
-                                else:
-                                    # Активируем подписку, если она не активна
-                                    referrer.is_subscribed = True
-                                    referrer.subscription_type = "monthly"
-                                    referrer.subscription_expires = datetime.now() + timedelta(days=30)
-                                    payment_logger.info(
-                                        f"\033[92m[REFERRAL_BONUS] Активирована бонусная подписка на 30 дней для пользователя {referrer.user_id}\033[0m")
-                                    # Отправляем уведомление о начислении бонуса
-                                    send_referral_bonus_notification(
-                                        referrer.user_id, user.username or "Новый пользователь")
-                            else:
-                                payment_logger.warning(
-                                    f"\033[93m[REFERRAL] Не найден активный реферальный код для пользователя {referrer.user_id}\033[0m")
-                        except Exception as ref_create_error:
-                            payment_logger.error(
-                                f"\033[91m[REFERRAL] Ошибка при создании записи об использовании реферальной ссылки: {str(ref_create_error)}\033[0m")
-
                 except Exception as ref_error:
                     payment_logger.error(
-                        f"\033[91m[REFERRAL] Ошибка при обработке реферальной системы: {str(ref_error)}\033[0m")
+                        f"\033[91m[REFERRAL_ERROR] Ошибка при обработке реферальной системы: {str(ref_error)}\033[0m")
+
+        # Проверяем наличие записи о конверсии блогера
+        try:
+            result, message = update_blogger_conversion(user.user_id, amount, session)
+            if result:
+                payment_logger.info(f"\033[92m[BLOGGER_REFERRAL] {message}\033[0m")
             else:
-                payment_logger.warning(
-                    f"\033[93m[REFERRAL] Реферер с ID {user.referrer_id} не найден в базе данных\033[0m")
+                payment_logger.info(
+                    f"\033[93m[BLOGGER_REFERRAL] {message}\033[0m")
+        except Exception as blogger_error:
+            payment_logger.error(
+                f"\033[91m[BLOGGER_REFERRAL_ERROR] {str(blogger_error)}\033[0m")
 
-        # Обновляем информацию о конверсии блогера, если пользователь пришел по реферальной ссылке блогера
-        success, message = update_blogger_conversion(
-            user.user_id, amount, session)
-        if success:
-            payment_logger.info(f"\033[92m[BLOGGER_REFERRAL] {message}\033[0m")
-        else:
-            payment_logger.info(f"\033[93m[BLOGGER_REFERRAL] {message}\033[0m")
-
+        # Сохраняем все изменения в базу данных
         session.commit()
         payment_logger.info(
-            f"\033[92mУспешно обновлен статус подписки для пользователя {user.user_id}\033[0m")
+            f"\033[92m[PAYMENT_SUCCESS] Платеж успешно зарегистрирован для пользователя {user.user_id}\033[0m")
 
-        # Отправляем уведомление пользователю об успешной оплате
+        # Отправляем уведомление пользователю через бота
         try:
-            # Проверяем текущее значение флага welcome_message_sent
-            payment_logger.info(
-                f"\033[93mТекущее значение флага welcome_message_sent для пользователя {user.user_id}: {user.welcome_message_sent}\033[0m")
-
-            # Отправляем сообщение в любом случае, независимо от флага welcome_message_sent
-            payment_logger.info(
-                f"\033[93mПытаемся отправить приветственное сообщение пользователю {user.user_id}\033[0m")
-            send_success = send_success_message(user.user_id)
-            if send_success:
-                user.welcome_message_sent = True
-                session.commit()
+            if bot:
                 payment_logger.info(
-                    f"\033[92mОтправлено сообщение о успешной оплате пользователю {user.user_id}\033[0m")
+                    f"\033[93mОтправка сообщения об успешной оплате пользователю {user.user_id}\033[0m")
+                send_success_message(user.user_id)
             else:
-                payment_logger.warning(
-                    f"\033[93mНе удалось отправить сообщение о успешной оплате пользователю {user.user_id}\033[0m")
-        except Exception as msg_error:
+                payment_logger.error(
+                    f"\033[91mНе удалось отправить сообщение пользователю {user.user_id} - бот не инициализирован\033[0m")
+        except Exception as bot_error:
             payment_logger.error(
-                f"\033[91mОшибка при отправке сообщения о успешной оплате: {str(msg_error)}\033[0m")
+                f"\033[91mОшибка при отправке сообщения через бота: {str(bot_error)}\033[0m")
 
-        # Если использовалось сохраненное соответствие, удаляем его
-        if str(user_id) in payment_user_mapping:
-            del payment_user_mapping[str(user_id)]
-            payment_logger.info(
-                f"\033[94mУдалено соответствие для плательщика {user_id}\033[0m")
-
-        return jsonify({
+        # Возвращаем успешный ответ
+        success_response = jsonify({
             "status": "success",
-            "user_id": user.user_id,  # Возвращаем Telegram ID из базы данных
+            "message": "Payment successful",
+            "user_id": user.user_id,
             "subscription_type": subscription_type,
-            "expires_at": subscription_expires.strftime("%Y-%m-%d %H:%M:%S")
+            "expires_at": subscription_expires.isoformat()
         })
+        # Добавляем CORS заголовки к успешному ответу
+        success_response.headers.add('Access-Control-Allow-Origin', '*')
+        success_response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        success_response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        return success_response
+
     except Exception as e:
         session.rollback()
         payment_logger.error(
             f"\033[91mОшибка при обработке успешной оплаты: {str(e)}\033[0m")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        # Возвращаем ответ с ошибкой
+        error_response = jsonify({"status": "error", "message": str(e)}), 500
+        # Добавляем CORS заголовки к ответу с ошибкой
+        error_response[0].headers.add('Access-Control-Allow-Origin', '*')
+        error_response[0].headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        error_response[0].headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        return error_response
+
     finally:
         session.close()
 
@@ -751,138 +658,123 @@ def send_pending_message(user_id):
 @payment_bp.route('/api/v1/payment/check', methods=['POST'])
 @require_api_key
 def check_payment_status():
-    """Проверка статуса оплаты"""
+    """
+    Проверяет статус платежа пользователя
+    """
     data = request.json
-    payment_logger.info(f"\033[93mПроверка статуса оплаты: {data}\033[0m")
+    payment_logger.info(f"\033[93mЗапрос на проверку статуса платежа: {data}\033[0m")
 
     user_id = data.get('user_id')
+    
     if not user_id:
         payment_logger.error(
-            "\033[91mНе указан user_id в запросе проверки статуса оплаты\033[0m")
-        return jsonify({"status": "error", "message": "User ID is required"}), 400
-
-    tgid = None
-    if 'url' in data:
-        url = data.get('url', '')
-        match = re.search(r'tgid=(\d+)', url)
-        if match:
-            tgid = int(match.group(1))
-            payment_logger.info(
-                f"\033[94mНайден Telegram ID в URL: {tgid}\033[0m")
-
-    saved_tgid = None
-    if str(user_id) in payment_user_mapping:
-        saved_tgid = payment_user_mapping[str(user_id)]["telegram_id"]
-        payment_logger.info(
-            f"\033[94mНайдено сохраненное соответствие: плательщик {user_id} -> Telegram {saved_tgid}\033[0m")
+            "\033[91mНе указан user_id в запросе проверки статуса\033[0m")
+        error_response = jsonify({"status": "error", "message": "User ID is required"}), 400
+        # Добавляем CORS заголовки к ответу с ошибкой
+        error_response[0].headers.add('Access-Control-Allow-Origin', '*')
+        error_response[0].headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        error_response[0].headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        return error_response
 
     session = get_session()
     try:
-        user = None
-
-        # Сначала ищем по сохраненному соответствию
-        if saved_tgid:
-            user = session.query(User).filter_by(user_id=saved_tgid).first()
-            if user:
-                payment_logger.info(
-                    f"\033[94mНайден пользователь по сохраненному Telegram ID: {saved_tgid}\033[0m")
-
-        # Если не нашли, ищем по tgid из URL
-        if not user and tgid:
-            user = session.query(User).filter_by(user_id=tgid).first()
-            if user:
-                payment_logger.info(
-                    f"\033[94mНайден пользователь по Telegram ID из URL: {tgid}\033[0m")
-
-                # Сохраняем соответствие
-                if tgid != user_id:
-                    payment_user_mapping[str(user_id)] = {
-                        "telegram_id": tgid,
-                        "timestamp": time.time()
-                    }
-                    payment_logger.info(
-                        f"\033[94mСохранено соответствие: плательщик {user_id} -> Telegram {tgid}\033[0m")
-
-        # Если все еще не нашли, ищем по user_id
+        # Ищем пользователя
+        user = session.query(User).filter_by(user_id=user_id).first()
+        
         if not user:
-            user = session.query(User).filter_by(user_id=user_id).first()
-            if user:
+            # Если пользователь с таким ID не найден, проверяем маппинг
+            if str(user_id) in payment_user_mapping:
+                tg_id = payment_user_mapping[str(user_id)]["telegram_id"]
+                user = session.query(User).filter_by(user_id=tg_id).first()
                 payment_logger.info(
-                    f"\033[94mНайден пользователь по ID плательщика: {user_id}\033[0m")
-
-        # Если пользователь все еще не найден, создаем нового пользователя
+                    f"\033[94mНайден пользователь через маппинг: {user_id} -> {tg_id}\033[0m")
+        
         if not user:
             payment_logger.warning(
-                f"\033[93mПользователь не найден в базе данных. Создаем нового пользователя\033[0m")
-
-            # Приоритет: saved_tgid > tgid > user_id
-            telegram_id = saved_tgid if saved_tgid else (
-                tgid if tgid else user_id)
-
-            user = User(
-                user_id=telegram_id,
-                registration_date=datetime.now(),
-                first_interaction_time=datetime.now(),
-                registered=False,  # Пользователь еще не заполнил анкету
-                payment_status='pending',
-                is_subscribed=False,
-                welcome_message_sent=False
-            )
-            session.add(user)
-            session.commit()
-            payment_logger.info(
-                f"\033[92mСоздан новый пользователь с user_id={telegram_id}\033[0m")
-
-        payment_status = user.payment_status
-        is_subscribed = user.is_subscribed
-        welcome_sent = user.welcome_message_sent
-
+                f"\033[93mПользователь с ID {user_id} не найден в базе данных\033[0m")
+            response = jsonify({
+                "status": "error",
+                "message": "User not found",
+                "payment_status": "unknown"
+            })
+            # Добавляем CORS заголовки к ответу
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+            response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+            return response
+        
+        # Получаем статус платежа
+        payment_status = user.payment_status or "unknown"
+        is_subscribed = user.is_subscribed or False
+        
+        # Если есть подписка, проверяем, не истекла ли она
+        subscription_active = False
+        subscription_expires = None
+        remaining_days = 0
+        
+        if is_subscribed and user.subscription_expires:
+            subscription_expires = user.subscription_expires
+            now = datetime.now()
+            
+            if subscription_expires > now:
+                subscription_active = True
+                remaining_days = (subscription_expires - now).days
+        
         payment_logger.info(
-            f"\033[93mПользователь {user.user_id}: payment_status={payment_status}, is_subscribed={is_subscribed}, welcome_message_sent={welcome_sent}\033[0m")
-
-        # Получаем username менеджера из конфигурации
-        config = get_bot_config()
-        manager_username = config.get('manager_username', 'willway_manager')
-
-        # Только если статус изменился с момента последней проверки, отправляем сообщение
-        if payment_status == 'completed' and is_subscribed and not welcome_sent:
-            payment_logger.info(
-                f"\033[93mНеобходимо отправить приветственное сообщение для пользователя {user.user_id}\033[0m")
-            # Отправляем сообщение об успешной оплате
-            success = send_success_message(user.user_id)
-
-            if success:
-                # Обновляем флаг отправки приветственного сообщения
-                payment_logger.info(
-                    f"\033[93mОбновляем welcome_message_sent с {welcome_sent} на True для пользователя {user.user_id}\033[0m")
-                user.welcome_message_sent = True
-                session.commit()
-                payment_logger.info(
-                    f"\033[92mОтправлено приветственное сообщение пользователю {user.user_id}\033[0m")
-            else:
+            f"\033[94mСтатус платежа для пользователя {user_id}: {payment_status}, подписка активна: {subscription_active}\033[0m")
+        
+        # Если статус pending и пользователь не подписан, отправляем напоминание
+        if payment_status == 'pending' and not subscription_active:
+            # Получаем username менеджера
+            config = get_bot_config()
+            manager_username = config.get("manager_username", "willway_manager")
+            
+            # Отправляем напоминание о незавершенной оплате через бота
+            try:
+                if bot and user.user_id:
+                    # Чтобы не отправлять слишком много напоминаний, проверяем когда было отправлено последнее
+                    last_reminder = user.last_payment_reminder or datetime.now() - timedelta(hours=24)
+                    
+                    # Если прошло больше часа с последнего напоминания
+                    if datetime.now() - last_reminder > timedelta(hours=1):
+                        payment_logger.info(
+                            f"\033[93mОтправка напоминания о незавершенной оплате пользователю {user.user_id}\033[0m")
+                        send_pending_message(user.user_id)
+                        
+                        # Обновляем время последнего напоминания
+                        user.last_payment_reminder = datetime.now()
+                        session.commit()
+                    else:
+                        payment_logger.info(
+                            f"\033[93mНапоминание о незавершенной оплате пользователю {user.user_id} уже было отправлено недавно\033[0m")
+            except Exception as bot_error:
                 payment_logger.error(
-                    f"\033[91mНе удалось отправить приветственное сообщение пользователю {user.user_id}\033[0m")
-        elif payment_status == 'pending' and not is_subscribed:
-            payment_logger.info(
-                f"\033[93mОтправка сообщения о незавершенной оплате для пользователя {user.user_id}\033[0m")
-            send_pending_message(user.user_id)
-        else:
-            payment_logger.info(
-                f"\033[93mНе требуется отправка сообщений для пользователя {user.user_id}\033[0m")
+                    f"\033[91mОшибка при отправке напоминания через бота: {str(bot_error)}\033[0m")
 
-        return jsonify({
+        # Формируем ответ
+        success_response = jsonify({
             "status": "success",
-            "data": {
-                "payment_status": payment_status,
-                "is_subscribed": is_subscribed,
-                "user_id": user.user_id
-            }
+            "user_id": user.user_id,
+            "payment_status": payment_status,
+            "is_subscribed": subscription_active,
+            "subscription_expires": subscription_expires.isoformat() if subscription_expires else None,
+            "remaining_days": remaining_days
         })
+        # Добавляем CORS заголовки к успешному ответу
+        success_response.headers.add('Access-Control-Allow-Origin', '*')
+        success_response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        success_response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        return success_response
+        
     except Exception as e:
-        session.rollback()
         payment_logger.error(
-            f"\033[91mОшибка при проверке статуса оплаты: {str(e)}\033[0m")
-        return jsonify({"status": "error", "message": str(e)}), 500
+            f"\033[91mОшибка при проверке статуса платежа: {str(e)}\033[0m")
+        error_response = jsonify({"status": "error", "message": str(e)}), 500
+        # Добавляем CORS заголовки к ответу с ошибкой
+        error_response[0].headers.add('Access-Control-Allow-Origin', '*')
+        error_response[0].headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        error_response[0].headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        return error_response
     finally:
         session.close()
 
@@ -1075,10 +967,8 @@ def log_mapping_state():
 @payment_bp.before_request
 def before_request():
     # Логируем только для определенных маршрутов
-    if request.path in ['/api/v1/payment/track', '/api/v1/payment/success', '/api/v1/payment/check']:
-        payment_logger.info(
-            f"\033[95m[DEBUG] Начало обработки запроса {request.path}, метод {request.method}\033[0m")
-        log_mapping_state()
+    if request.path.startswith('/api/v1/payment/'):
+        payment_logger.info(f"\033[93m[REQUEST] {request.method} {request.path}\033[0m")
 
 # Логируем состояние мапинга после обработки запросов
 
@@ -1086,8 +976,18 @@ def before_request():
 @payment_bp.after_request
 def after_request(response):
     # Логируем только для определенных маршрутов
-    if request.path in ['/api/v1/payment/track', '/api/v1/payment/success', '/api/v1/payment/check']:
-        payment_logger.info(
-            f"\033[95m[DEBUG] Завершение обработки запроса {request.path}, статус {response.status_code}\033[0m")
-        log_mapping_state()
+    if request.path.startswith('/api/v1/payment/'):
+        payment_logger.info(f"\033[93m[RESPONSE] {request.method} {request.path} - Status: {response.status_code}\033[0m")
+    return response
+
+# Обработчик CORS preflight запросов
+@payment_bp.route('/api/v1/payment/track', methods=['OPTIONS'])
+@payment_bp.route('/api/v1/payment/success', methods=['OPTIONS'])
+@payment_bp.route('/api/v1/payment/check', methods=['OPTIONS'])
+def handle_preflight():
+    """Обработчик CORS preflight запросов"""
+    response = jsonify({'status': 'ok'})
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
     return response

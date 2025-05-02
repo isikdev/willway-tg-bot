@@ -63,6 +63,10 @@ def run_flask_server():
         
         app = create_app()
         
+        # Явно устанавливаем настройки базы данных
+        app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
+        app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+        
         # Получаем настройки из переменных окружения
         host = os.getenv("FLASK_HOST", "0.0.0.0")
         port = int(os.getenv("FLASK_PORT", 5000))
