@@ -120,3 +120,5 @@ Thumbs.db
 
 # Файл с настройками бота и токеном
 config.json
+.env
+.env1.txt
