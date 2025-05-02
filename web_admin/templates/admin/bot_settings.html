@@ -290,14 +290,8 @@
                                             class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID
                                             админа</th>
                                         <th scope="col"
-                                            class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID
-                                            Telegram</th>
-                                        <th scope="col"
                                             class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Имя
                                             пользователя</th>
-                                        <th scope="col"
-                                            class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Дата
-                                            добавления</th>
                                         <th scope="col"
                                             class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
                                     </tr>
@@ -311,16 +305,8 @@
                                             class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{{
                                             admin.id }}</td>
                                         <td
-                                            class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{{
-                                            admin.user_id }}</td>
-                                        <td
                                             class="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{{
                                             admin.username or "Не указано"
-                                            }}</td>
-                                        <td
-                                            class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{{
-                                            admin.added_at.strftime('%d.%m.%Y %H:%M')
-                                            if admin.added_at else "Не указано"
                                             }}</td>
                                         <td
                                             class="px-4 py-2 whitespace-nowrap text-right text-sm font-medium">
@@ -344,7 +330,7 @@
                                     {% endfor %}
                                     {% else %}
                                     <tr>
-                                        <td colspan="5"
+                                        <td colspan="3"
                                             class="px-4 py-2 text-center text-sm text-gray-500">Администраторы
                                             не найдены</td>
                                     </tr>

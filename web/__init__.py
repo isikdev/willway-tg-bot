@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, send_from_directory
 import os
 import logging
+from database.db import init_flask_db
 
 # Настройка логирования
 logging.basicConfig(
@@ -19,9 +20,13 @@ def create_app():
     # Создаем экземпляр Flask
     app = Flask(__name__)
     
-    # Настройка для работы с доменом api-willway.ru
-    app.config['SERVER_NAME'] = os.getenv('SERVER_NAME', 'api-willway.ru')
+    # Убираем SERVER_NAME, так как он вызывает проблемы при использовании Nginx
+    # app.config['SERVER_NAME'] = os.getenv('SERVER_NAME', 'api-willway.ru')
     app.config['PREFERRED_URL_SCHEME'] = 'https'
+    
+    # Инициализация базы данных SQLAlchemy
+    init_flask_db(app)
+    logger.info("Инициализирована база данных Flask-SQLAlchemy")
     
     # Регистрируем маршруты для платежей
     from web.payment_routes import payment_bp

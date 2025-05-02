@@ -41,13 +41,13 @@
                     <div class="flex h-16 justify-between">
                         <div class="flex">
                             <div class="flex flex-shrink-0 items-center">
-                                <a href="{{ url_for('dashboard') }}"
+                                <a href="{{ url_for('admin_dashboard') }}"
                                     class="text-primary font-bold text-xl">WillWay</a>
                             </div>
                             <div class="hidden sm:ml-6 sm:flex sm:space-x-8">
                                 <!-- Пункты меню -->
-                                <a href="{{ url_for('dashboard') }}"
-                                    class="{% if request.endpoint == 'dashboard' %}border-primary-500 text-primary{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %} inline-flex items-center border-b-2 px-1 pt-1 text-sm font-medium">
+                                <a href="{{ url_for('admin_dashboard') }}"
+                                    class="{% if request.endpoint == 'admin_dashboard' %}border-primary-500 text-primary{% else %}border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700{% endif %} inline-flex items-center border-b-2 px-1 pt-1 text-sm font-medium">
                                     Аналитика
                                 </a>
                                 <a href="{{ url_for('users') }}"
@@ -139,8 +139,8 @@
                 <!-- Мобильное меню, показывается/скрывается на основе состояния меню -->
                 <div class="hidden sm:hidden" id="mobile-menu">
                     <div class="space-y-1 pb-3 pt-2">
-                        <a href="{{ url_for('dashboard') }}"
-                            class="{% if request.endpoint == 'dashboard' %}bg-primary-50 border-primary text-primary{% else %}border-transparent text-gray-600 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800{% endif %} block border-l-4 py-2 pl-3 pr-4 text-base font-medium">
+                        <a href="{{ url_for('admin_dashboard') }}"
+                            class="{% if request.endpoint == 'admin_dashboard' %}bg-primary-50 border-primary text-primary{% else %}border-transparent text-gray-600 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-800{% endif %} block border-l-4 py-2 pl-3 pr-4 text-base font-medium">
                             Аналитика
                         </a>
                         <a href="{{ url_for('users') }}"

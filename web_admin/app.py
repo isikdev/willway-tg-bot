@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 import json
 import requests
 from werkzeug.utils import secure_filename
-from database.db import db
+from database.db import db, init_flask_db
 from flask_migrate import Migrate
 from web_admin.api_routes import api_bp
 
@@ -32,12 +32,13 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'img')
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
 
-# Конфигурация базы данных
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL", "sqlite:///health_bot.db")
+# Настройка базы данных
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///health_bot.db")
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Инициализация базы данных
-db.init_app(app)
+# Инициализация базы данных с помощью функции из database.db
+init_flask_db(app)
 migrate = Migrate(app, db)
 
 # Настройка логирования
@@ -46,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 # Конфигурация для Telegram бота
 app.config['TELEGRAM_BOT_TOKEN'] = os.getenv("TELEGRAM_BOT_TOKEN", "")
-app.config['TELEGRAM_BOT_USERNAME'] = os.getenv("TELEGRAM_BOT_USERNAME", "willway_super_bot")
+app.config['TELEGRAM_BOT_USERNAME'] = os.getenv("TELEGRAM_BOT_USERNAME", "willwayapp_bot")
 app.config['ADMIN_API_KEY'] = os.getenv("ADMIN_API_KEY", "admin_secret_key")
 
 # Данные для авторизации из .env файла
@@ -78,7 +79,7 @@ def login():
         
         if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
             session['logged_in'] = True
-            return redirect(url_for('dashboard'))
+            return redirect(url_for('admin_dashboard'))
         else:
             flash('Неверное имя пользователя или пароль', 'error')
     
@@ -91,8 +92,26 @@ def logout():
 
 # Маршрут для главной страницы админки (аналитика)
 @app.route('/')
+def admin_root():
+    """Обработка запросов в зависимости от поддомена"""
+    host = request.host.lower()
+    
+    if 'admin.api-willway.ru' in host:
+        if 'logged_in' in session:
+            return redirect(url_for('admin_dashboard'))
+        else:
+            return redirect(url_for('login'))
+    elif 'bloggers.api-willway.ru' in host:
+        # Используем прямой URL вместо url_for, чтобы избежать проблем с поддоменами
+        return redirect('/blogger/login')
+    else:
+        return "Willway Admin API"
+
+# Добавляем отдельный маршрут для панели администратора
+@app.route('/admin/dashboard')
 @login_required
-def dashboard():
+def admin_dashboard():
+    """Отображение панели администратора"""
     db_session = get_session()
     
     # Получаем текущий месяц и год
@@ -215,7 +234,9 @@ def get_user(user_id):
         'registration_date': user.registration_date.strftime('%d.%m.%Y') if user.registration_date else None,
         'is_subscribed': user.is_subscribed,
         'subscription_type': user.subscription_type,
-        'subscription_expires': user.subscription_expires.strftime('%d.%m.%Y') if user.subscription_expires else None
+        'subscription_expires': user.subscription_expires.strftime('%d.%m.%Y') if user.subscription_expires else None,
+        'user_choices': user.user_choices,
+        'payment_declined_reason': user.payment_declined_reason
     }
     
     db_session.close()
@@ -844,23 +865,31 @@ def telegram_app_blogger_login():
     except Exception as e:
         app.logger.error(f"Ошибка при обработке данных пользователя: {str(e)}")
     
-    return render_template('admin/telegram_app/login.html')
+    return render_template('telegram_app/blogger_login.html')
 
 @app.route('/telegram-app/blogger/dashboard')
 def telegram_app_blogger_dashboard():
-    # Получаем параметры от Telegram WebApp
-    blogger_id = request.args.get('id')
-    access_key = request.args.get('key')
+    return render_template('telegram_app/blogger_dashboard.html')
     
-    # Проверяем ключ доступа
+# Маршруты для личного кабинета блогеров (без Telegram)
+@app.route('/blogger/login')
+def blogger_login():
+    return render_template('blogger/login.html')
+
+@app.route('/blogger/dashboard')
+def blogger_dashboard():
+    # Проверяем аутентификацию по ключу
+    access_key = request.args.get('key')
+    if not access_key:
+        return redirect(url_for('blogger_login'))
+    
     db_session = get_session()
-    blogger = None
-    if blogger_id and access_key:
-        blogger = db_session.query(Blogger).filter_by(id=blogger_id, access_key=access_key).first()
+    blogger = db_session.query(Blogger).filter_by(access_key=access_key).first()
     
     if not blogger:
         db_session.close()
-        return redirect(url_for('telegram_app_blogger_login'))
+        flash('Недействительный ключ доступа', 'error')
+        return redirect(url_for('blogger_login'))
     
     # Получаем статистику
     total_referrals = db_session.query(BloggerReferral).filter_by(blogger_id=blogger.id).count()
@@ -869,23 +898,29 @@ def telegram_app_blogger_dashboard():
         .filter_by(blogger_id=blogger.id, converted=True)\
         .scalar() or 0
     
+    # Получаем список последних переходов
+    recent_referrals = db_session.query(BloggerReferral)\
+        .filter_by(blogger_id=blogger.id)\
+        .order_by(BloggerReferral.created_at.desc())\
+        .limit(10)\
+        .all()
+    
     db_session.close()
     
     # Формируем реферальную ссылку
-    bot_username = app.config.get('TELEGRAM_BOT_USERNAME', 'WILLWAY_ReferalBot')
+    bot_username = app.config.get('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')
     referral_link = f"https://t.me/{bot_username}?start=ref_{blogger.access_key}"
     
-    return render_template('admin/telegram_app/dashboard.html', 
+    return render_template('blogger/dashboard.html', 
                           blogger=blogger, 
                           total_referrals=total_referrals,
                           total_conversions=total_conversions,
                           total_earnings=total_earnings,
-                          referral_link=referral_link)
+                          referral_link=referral_link,
+                          recent_referrals=recent_referrals)
 
-# Добавляем API для Mini Web App
 @app.route('/api/webapp/blogger/verify', methods=['POST'])
 def webapp_verify_blogger():
-    """Проверка данных блогера для Mini Web App"""
     data = request.get_json()
     
     if not data or 'access_key' not in data:
@@ -907,14 +942,12 @@ def webapp_verify_blogger():
 
 @app.route('/api/webapp/blogger/stats', methods=['GET'])
 def webapp_get_blogger_stats():
-    """Получение статистики блогера для Mini Web App"""
     blogger_id = request.args.get('id')
     access_key = request.args.get('key')
     
     if not blogger_id or not access_key:
         return jsonify({"success": False, "error": "Не указаны параметры доступа"}), 400
     
-    # Проверка ключа доступа
     db_session = get_session()
     blogger = db_session.query(Blogger).filter_by(id=blogger_id, access_key=access_key).first()
     
@@ -922,19 +955,15 @@ def webapp_get_blogger_stats():
         db_session.close()
         return jsonify({"success": False, "error": "Нет доступа"}), 401
     
-    # Получаем общее количество переходов
     total_referrals = db_session.query(BloggerReferral).filter_by(blogger_id=blogger.id).count()
     
-    # Получаем общее количество конверсий
     total_conversions = db_session.query(BloggerReferral).filter_by(blogger_id=blogger.id, converted=True).count()
     
-    # Получаем общую сумму заработка
     total_earnings = db_session.query(func.sum(BloggerReferral.commission_amount))\
         .filter_by(blogger_id=blogger.id, converted=True)\
         .scalar() or 0
     
-    # Формируем реферальную ссылку
-    bot_username = app.config.get('TELEGRAM_BOT_USERNAME', 'WILLWAY_ReferalBot')
+    bot_username = app.config.get('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')
     referral_link = f"https://t.me/{bot_username}?start=ref_{blogger.access_key}"
     
     db_session.close()
@@ -952,26 +981,21 @@ def webapp_get_blogger_stats():
 
 @app.route('/api/telegram-bot/webhook', methods=['POST'])
 def telegram_webhook():
-    """Обработчик вебхуков от Telegram бота"""
     try:
         data = request.get_json()
         app.logger.info(f"Получены данные от Telegram: {json.dumps(data)}")
         
-        # Обработка команды start с реферальным кодом
         if 'message' in data and 'text' in data['message']:
             message_text = data['message']['text']
             user_id = data['message']['from']['id']
             
-            # Проверяем начало разговора с ботом со ссылкой реферала
             if message_text.startswith('/start ref_'):
                 access_key = message_text.replace('/start ref_', '')
                 
-                # Проверяем существование блогера с таким ключом
                 db_session = get_session()
                 blogger = db_session.query(Blogger).filter_by(access_key=access_key).first()
                 
                 if blogger:
-                    # Создаем запись о переходе
                     new_referral = BloggerReferral(
                         blogger_id=blogger.id,
                         source=f"telegram_start_{user_id}"
@@ -987,11 +1011,9 @@ def telegram_webhook():
         app.logger.error(f"Ошибка при обработке вебхука: {str(e)}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-# Функция для установки вебхука
 @app.route('/api/telegram-bot/set-webhook', methods=['GET'])
 @login_required
 def set_telegram_webhook():
-    """Установка вебхука для Telegram бота"""
     token = app.config.get('TELEGRAM_BOT_TOKEN')
     if not token:
         return jsonify({"success": False, "error": "Токен бота не настроен"}), 400
@@ -1001,7 +1023,6 @@ def set_telegram_webhook():
         return jsonify({"success": False, "error": "URL не указан"}), 400
     
     try:
-        # Формируем URL для установки вебхука
         api_url = f"https://api.telegram.org/bot{token}/setWebhook"
         response = requests.post(api_url, json={"url": webhook_url})
         result = response.json()
@@ -1013,7 +1034,260 @@ def set_telegram_webhook():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route('/api/blogger/verify-key', methods=['POST'])
+def api_blogger_verify_key():
+    data = request.get_json()
+    
+    if not data or 'access_key' not in data:
+        return jsonify({"success": False, "error": "Не указан ключ доступа"}), 400
+    
+    access_key = data['access_key']
+    db_session = get_session()
+    blogger = db_session.query(Blogger).filter_by(access_key=access_key, is_active=True).first()
+    db_session.close()
+    
+    if not blogger:
+        return jsonify({"success": False, "error": "Неверный ключ доступа"}), 401
+    
+    return jsonify({
+        "success": True,
+        "blogger_id": blogger.id,
+        "blogger_name": blogger.name
+    })
+
+@app.route('/api/blogger/stats', methods=['GET'])
+def api_blogger_stats():
+    blogger_id = request.args.get('id')
+    access_key = request.args.get('key')
+    
+    if not access_key:
+        return jsonify({"success": False, "error": "Не указан ключ доступа"}), 400
+    
+    db_session = get_session()
+    
+    if blogger_id:
+        blogger = db_session.query(Blogger).filter_by(id=blogger_id, access_key=access_key, is_active=True).first()
+    else:
+        blogger = db_session.query(Blogger).filter_by(access_key=access_key, is_active=True).first()
+    
+    if not blogger:
+        db_session.close()
+        return jsonify({"success": False, "error": "Неверный ключ доступа"}), 401
+    
+    total_referrals = db_session.query(BloggerReferral).filter_by(blogger_id=blogger.id).count()
+    total_conversions = db_session.query(BloggerReferral).filter_by(blogger_id=blogger.id, converted=True).count()
+    total_earnings = db_session.query(func.sum(BloggerReferral.commission_amount))\
+        .filter_by(blogger_id=blogger.id, converted=True)\
+        .scalar() or 0
+    
+    bot_username = app.config.get('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')
+    referral_link = f"https://t.me/{bot_username}?start=ref_{blogger.access_key}"
+    
+    thirty_days_ago = datetime.now() - timedelta(days=30)
+    
+    daily_stats = []
+    current_date = datetime.now().date()
+    
+    for day_offset in range(30):
+        date = current_date - timedelta(days=day_offset)
+        date_str = date.strftime("%Y-%m-%d")
+        
+        referrals_count = db_session.query(BloggerReferral)\
+            .filter(
+                BloggerReferral.blogger_id == blogger.id,
+                func.date(BloggerReferral.created_at) == date
+            ).count()
+        
+        conversions_count = db_session.query(BloggerReferral)\
+            .filter(
+                BloggerReferral.blogger_id == blogger.id,
+                BloggerReferral.converted == True,
+                func.date(BloggerReferral.converted_at) == date
+            ).count()
+        
+        earnings_sum = db_session.query(func.sum(BloggerReferral.commission_amount))\
+            .filter(
+                BloggerReferral.blogger_id == blogger.id,
+                BloggerReferral.converted == True,
+                func.date(BloggerReferral.converted_at) == date
+            ).scalar() or 0
+        
+        daily_stats.append({
+            "date": date_str,
+            "referrals": referrals_count,
+            "conversions": conversions_count,
+            "earnings": float(earnings_sum)
+        })
+    
+    db_session.close()
+    
+    return jsonify({
+        "success": True,
+        "blogger_id": blogger.id,
+        "blogger_name": blogger.name,
+        "created_at": blogger.created_at.strftime("%Y-%m-%d"),
+        "total_referrals": total_referrals,
+        "total_conversions": total_conversions,
+        "total_earnings": float(total_earnings),
+        "referral_link": referral_link,
+        "daily_stats": daily_stats
+    })
+
+@app.route('/api/blogger/referrals', methods=['GET'])
+def api_blogger_referrals():
+    """Получение списка рефералов блогера"""
+    blogger_id = request.args.get('id')
+    access_key = request.args.get('key')
+    offset = int(request.args.get('offset', 0))
+    limit = int(request.args.get('limit', 10))
+    
+    if not access_key:
+        return jsonify({"success": False, "error": "Не указан ключ доступа"}), 400
+    
+    db_session = get_session()
+    
+    if blogger_id:
+        blogger = db_session.query(Blogger).filter_by(id=blogger_id, access_key=access_key, is_active=True).first()
+    else:
+        blogger = db_session.query(Blogger).filter_by(access_key=access_key, is_active=True).first()
+    
+    if not blogger:
+        db_session.close()
+        return jsonify({"success": False, "error": "Неверный ключ доступа"}), 401
+    
+    # Получаем список рефералов с пагинацией
+    referrals = db_session.query(BloggerReferral)\
+        .filter_by(blogger_id=blogger.id)\
+        .order_by(BloggerReferral.created_at.desc())\
+        .offset(offset)\
+        .limit(limit)\
+        .all()
+    
+    # Форматируем результат
+    referrals_list = [{
+        "id": ref.id,
+        "source": ref.source,
+        "created_at": ref.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+        "converted": ref.converted,
+        "converted_at": ref.converted_at.strftime("%Y-%m-%d %H:%M:%S") if ref.converted_at else None,
+        "commission_amount": float(ref.commission_amount) if ref.commission_amount else 0
+    } for ref in referrals]
+    
+    db_session.close()
+    
+    return jsonify({
+        "success": True,
+        "referrals": referrals_list
+    })
+
+@app.route('/admin/create-blogger', methods=['POST'])
+@login_required
+def create_blogger():
+    """Создать нового блогера"""
+    name = request.form.get('name')
+    telegram_id = request.form.get('telegram_id')
+    email = request.form.get('email')
+    
+    if not name:
+        flash('Имя блогера обязательно', 'error')
+        return redirect(url_for('bloggers'))
+    
+    db_session = get_session()
+    
+    try:
+        # Создаем нового блогера с автоматически сгенерированным ключом доступа
+        new_blogger = Blogger(
+            name=name,
+            telegram_id=telegram_id,
+            email=email
+            # access_key будет сгенерирован автоматически благодаря default=generate_access_key
+        )
+        
+        db_session.add(new_blogger)
+        db_session.commit()
+        
+        flash(f'Блогер {name} успешно добавлен. Ключ доступа: {new_blogger.access_key}', 'success')
+        
+    except Exception as e:
+        db_session.rollback()
+        flash(f'Ошибка при создании блогера: {str(e)}', 'error')
+    
+    finally:
+        db_session.close()
+    
+    return redirect(url_for('bloggers'))
+
+@app.route('/api/blogger/toggle-status', methods=['POST'])
+@login_required
+def toggle_blogger_status():
+    """Изменить статус блогера (активный/неактивный)"""
+    data = request.get_json()
+    
+    if not data or 'blogger_id' not in data or 'activate' not in data:
+        return jsonify({"success": False, "error": "Неверные параметры запроса"}), 400
+    
+    blogger_id = data['blogger_id']
+    activate = data['activate']
+    
+    db_session = get_session()
+    
+    try:
+        blogger = db_session.query(Blogger).filter_by(id=blogger_id).first()
+        
+        if not blogger:
+            db_session.close()
+            return jsonify({"success": False, "error": "Блогер не найден"}), 404
+        
+        blogger.is_active = bool(activate)
+        db_session.commit()
+        
+        return jsonify({
+            "success": True,
+            "message": f"Блогер {'активирован' if activate else 'деактивирован'}"
+        })
+        
+    except Exception as e:
+        db_session.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
+    
+    finally:
+        db_session.close()
+
+@app.route('/blogger/authenticate', methods=['POST'])
+def blogger_authenticate():
+    """Аутентификация блогера по ключу доступа"""
+    access_key = request.form.get('access_key')
+    
+    if not access_key:
+        flash('Пожалуйста, введите ключ доступа', 'error')
+        return redirect(url_for('blogger_login'))
+    
+    db_session = get_session()
+    blogger = db_session.query(Blogger).filter_by(access_key=access_key, is_active=True).first()
+    db_session.close()
+    
+    if not blogger:
+        flash('Неверный ключ доступа или аккаунт деактивирован', 'error')
+        return redirect(url_for('blogger_login'))
+    
+    # Перенаправляем на дашборд с параметром ключа
+    return redirect(url_for('blogger_dashboard', key=access_key))
+
+@app.route('/blogger/logout')
+def blogger_logout():
+    """Выход из личного кабинета блогера"""
+    return redirect(url_for('blogger_login'))
+
+@app.template_filter('from_json')
+def from_json(value):
+    if not value:
+        return {}
+    try:
+        return json.loads(value)
+    except:
+        return {}
+
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()  # Создаем таблицы, если их нет
-    app.run(debug=True, host='0.0.0.0', port=5000) 
+    app.run(debug=True, host="0.0.0.0", port=5001) 

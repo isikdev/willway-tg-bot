@@ -359,6 +359,33 @@
                                     <dd class="mt-1 text-sm text-gray-900"
                                         id="user-subscription-expires"></dd>
                                 </div>
+                                <div class="animate-pulse-once mt-6"
+                                    style="animation-delay: 700ms;">
+                                    <h4
+                                        class="text-md font-medium text-gray-900">История
+                                        выбора при оплате</h4>
+                                    <div class="mt-2 bg-gray-50 rounded-md p-3">
+                                        <div
+                                            id="user-payment-choices-container">
+                                            <div id="user-payment-choices">
+                                                <p
+                                                    class="text-sm text-gray-500">Нет
+                                                    данных о выборе при
+                                                    оплате</p>
+                                            </div>
+                                            <div
+                                                id="user-payment-declined-reason-container"
+                                                class="mt-3 hidden">
+                                                <p
+                                                    class="text-sm font-medium text-gray-500">Причина
+                                                    отказа:</p>
+                                                <div
+                                                    id="user-payment-declined-reason"
+                                                    class="mt-1 text-sm text-gray-900 p-2 bg-gray-100 rounded"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </dl>
                         </div>
                     </div>
@@ -756,6 +783,74 @@
                 
                 document.getElementById('user-subscription-type').textContent = userData.subscription_type || 'Не указано';
                 document.getElementById('user-subscription-expires').textContent = userData.subscription_expires || 'Не указано';
+                
+                // Обработка и отображение выборов пользователя
+                const userChoicesContainer = document.getElementById('user-payment-choices');
+                const declinedReasonContainer = document.getElementById('user-payment-declined-reason-container');
+                const declinedReason = document.getElementById('user-payment-declined-reason');
+                
+                if (userData.user_choices) {
+                    let choices;
+                    try {
+                        choices = typeof userData.user_choices === 'string' ? 
+                            JSON.parse(userData.user_choices) : userData.user_choices;
+                            
+                        // Создаем HTML для отображения выборов
+                        let choicesHtml = '<div class="space-y-2">';
+                        
+                        // Список понятных названий для типов выборов
+                        const choiceLabels = {
+                            'payment_choice': 'Первоначальный выбор',
+                            'payment_concern': 'Беспокойство',
+                            'payment_expensive_decision': 'Решение (дорого)',
+                            'payment_expensive_no_decision': 'Решение (дорого → нет)',
+                            'payment_results_decision': 'Решение (результат)',
+                            'payment_results_no_decision': 'Решение (результат → нет)',
+                            'payment_feedback': 'Обратная связь'
+                        };
+                        
+                        // Создаем таблицу выборов
+                        if (Object.keys(choices).length > 0) {
+                            choicesHtml += '<div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200">';
+                            choicesHtml += '<thead class="bg-gray-50"><tr>';
+                            choicesHtml += '<th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Этап</th>';
+                            choicesHtml += '<th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Выбор</th>';
+                            choicesHtml += '</tr></thead>';
+                            choicesHtml += '<tbody class="bg-white divide-y divide-gray-200">';
+                            
+                            for (const [key, value] of Object.entries(choices)) {
+                                if (key !== 'payment_feedback') {
+                                    choicesHtml += `<tr>
+                                        <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-900">${choiceLabels[key] || key}</td>
+                                        <td class="px-3 py-2 whitespace-nowrap text-sm text-gray-500">${value}</td>
+                                    </tr>`;
+                                }
+                            }
+                            
+                            choicesHtml += '</tbody></table></div>';
+                        } else {
+                            choicesHtml += '<p class="text-sm text-gray-500">Нет данных о выборе при оплате</p>';
+                        }
+                        
+                        choicesHtml += '</div>';
+                        userChoicesContainer.innerHTML = choicesHtml;
+                        
+                        // Отображаем причину отказа
+                        if (userData.payment_declined_reason) {
+                            declinedReason.textContent = userData.payment_declined_reason;
+                            declinedReasonContainer.classList.remove('hidden');
+                        } else {
+                            declinedReasonContainer.classList.add('hidden');
+                        }
+                    } catch (e) {
+                        console.error('Ошибка при разборе JSON выборов пользователя:', e);
+                        userChoicesContainer.innerHTML = '<p class="text-sm text-gray-500">Ошибка при отображении выборов пользователя</p>';
+                        declinedReasonContainer.classList.add('hidden');
+                    }
+                } else {
+                    userChoicesContainer.innerHTML = '<p class="text-sm text-gray-500">Нет данных о выборе при оплате</p>';
+                    declinedReasonContainer.classList.add('hidden');
+                }
                 
                 // Анимированное отображение модального окна
                 const modal = document.getElementById('userModal');

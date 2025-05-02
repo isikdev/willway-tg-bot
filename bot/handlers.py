@@ -698,16 +698,21 @@ def start(update: Update, context: CallbackContext) -> int:
     
     # Получаем данные о пользователе
     session = get_session()
+    user_created = False
+    ref_code = None  # Инициализируем переменную ref_code
+    
     try:
         user = session.query(User).filter(User.user_id == user_id).first()
         
         # Если пользователь новый, создаем запись
         if not user:
+            user_created = True
             user = User(
                 user_id=user_id,
                 username=username,
                 registration_date=datetime.now(TIMEZONE),
-                first_interaction_time=datetime.now(TIMEZONE)
+                first_interaction_time=datetime.now(TIMEZONE),
+                registered=False  # Устанавливаем флаг что пользователь не прошел регистрацию
             )
             
             # Если передан реферальный код, обрабатываем его
@@ -776,34 +781,31 @@ def start(update: Update, context: CallbackContext) -> int:
                             logger.warning(f"[REFERRAL_WARNING] Не удалось увеличить счетчик использований: {str(counter_error)}")
                         
                         logger.info(f"[REFERRAL] Пользователь {user_id} пришел по реферальной ссылке от пользователя {referrer.user_id}")
+                    else:
+                        logger.warning(f"[REFERRAL] Реферер с user_id={ref_code.user_id} не найден в базе данных")
+                        user.referral_source = 'unknown'
                 else:
-                    logger.warning(f"[REFERRAL] Реферер с user_id={ref_code.user_id} не найден в базе данных")
-                    user.referral_source = 'unknown'
+                    if ref_code:
+                        logger.info(f"[REFERRAL] Реферальный код принадлежит самому пользователю или недействителен")
+                    else:
+                        logger.info(f"[REFERRAL] Реферальный код {referral_code} не найден")
+                    user.referral_source = 'direct'
+                    logger.info(f"[REFERRAL] Пользователь {user_id} использовал недействительный реферальный код: {referral_code}")
             else:
-                if ref_code:
-                    logger.info(f"[REFERRAL] Реферальный код принадлежит самому пользователю или недействителен")
-                else:
-                    logger.info(f"[REFERRAL] Реферальный код {referral_code} не найден")
                 user.referral_source = 'direct'
-                logger.info(f"[REFERRAL] Пользователь {user_id} использовал недействительный реферальный код: {referral_code}")
-        else:
-            user.referral_source = 'direct'
-            logger.info(f"[REFERRAL] Пользователь {user_id} пришел напрямую, без реферального кода")
+                logger.info(f"[REFERRAL] Пользователь {user_id} пришел напрямую, без реферального кода")
         
         session.add(user)
         session.commit()
-        logger.info(f"Создан новый пользователь: {user_id}")
+        
+        if user_created:
+            logger.info(f"Создан новый пользователь: {user_id}")
     except Exception as e:
         session.rollback()
         logger.error(f"Ошибка при обработке команды /start: {str(e)}")
         logger.exception(e)
     finally:
         session.close()
-    
-    config = get_bot_config()
-    
-    welcome_text = config.get('welcome_text', 'Привет! Я бот WillWay, твой персональный помощник по здоровью и фитнесу.')
-    intro_video_file_id = config.get('intro_video_file_id')
     
     user = None
     
@@ -814,9 +816,12 @@ def start(update: Update, context: CallbackContext) -> int:
     except Exception as e:
         logger.error(f"Ошибка при повторном получении пользователя: {str(e)}")
     
+    # Проверяем, если пользователь новый или незарегистрированный
     if user and not user.registered:
+        # Отправляем только приветственное видео
         send_welcome_video(update, context)
         
+        # Если администратор - показываем сообщение об этом
         if is_admin(user_id):
             logger.info(f"Пользователь {user_id} является администратором")
             update.message.reply_text(
@@ -824,38 +829,26 @@ def start(update: Update, context: CallbackContext) -> int:
                 reply_markup=get_main_keyboard()
             )
             return ConversationHandler.END
-            
-        keyboard = [
-            [KeyboardButton("Подобрать персональную программу")]
-        ]
-        update.message.reply_text(
-            "Для начала работы с ботом, пожалуйста, пройдите небольшой опрос, чтобы я мог подобрать для вас персональные рекомендации.",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        )
         
-        job_queue = context.job_queue
-        job_queue.run_once(
-            send_survey_prompt,
-            300,  # через 5 минут
-            context={'chat_id': chat_id, 'user_id': user_id},
-            name=f'survey_prompt_{user_id}'
-        )
+        # Больше не отправляем сообщение о необходимости пройти опрос
+        # и не запускаем автоматически анкетирование
         
         return ConversationHandler.END
-    
-    update.message.reply_text(
-        "Рад видеть вас снова! Выберите действие из меню:",
-        reply_markup=get_main_keyboard()
-    )
-            
-    update.message.reply_text(
-        "Главное меню:",
-        reply_markup=InlineKeyboardMarkup(menu_keyboard())
-    )
-    
-    if user and user.payment_status == 'pending' and not user.is_subscribed:
-        schedule_payment_reminder(context, user_id)
-    
+    else:
+        # Для уже зарегистрированных пользователей показываем главное меню
+        update.message.reply_text(
+            "Рад видеть вас снова! Выберите действие из меню:",
+            reply_markup=get_main_keyboard()
+        )
+                
+        update.message.reply_text(
+            "Главное меню:",
+            reply_markup=InlineKeyboardMarkup(menu_keyboard())
+        )
+        
+        if user and user.payment_status == 'pending' and not user.is_subscribed:
+            schedule_payment_reminder(context, user_id)
+        
         return ConversationHandler.END
 
 def send_welcome_video(update, context):
@@ -967,19 +960,11 @@ def send_welcome_video(update, context):
         )
 
 def send_survey_prompt(context: CallbackContext):
-    message = context.job.context
-    
-    config = get_bot_config()
-    
-    keyboard = [
-        [InlineKeyboardButton("Подобрать персональную программу", callback_data="start_survey")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    message.reply_text(
-        "",
-        reply_markup=reply_markup
-    )
+    # Убираем старый код, который отправляет дополнительное сообщение
+    # Просто логируем действие
+    logger.info(f"send_survey_prompt вызван, но ничего не делает согласно новым требованиям")
+    # Оставляем эту функцию пустой, чтобы не отправлять дополнительное сообщение
+    return
 
 def start_survey(update: Update, context: CallbackContext) -> int:
 

@@ -1,8 +1,8 @@
 {
     "trainer_username": "Jackturaa",
     "manager_username": "Jackturaa",
-    "bot_token": "7553209584:AAE1mnygt5d7Y37bOhktuqexXKHrffx2qZ4",
-    "bot_name": "WillWay Bot",
+    "bot_token": "7719877297:AAEThbxMJj246SMjwV4x2eAMng8e7i4aofA",
+    "bot_name": "WILLWAY",
     "about_text": "Пока работает в тестовом режиме, но уже бот WillWay",
     "description": "WillWay ваш персональный помощник и т.д.",
     "privacy_mode": false,
@@ -15,7 +15,8 @@
     "test_drive_url": "https://willway.ru/test-drive",
     "commands": {
         "/start": "Начать общение с ботом",
-        "/help": "Помощь"
+        "/help": "Помощь",
+        "/cabinet": "Личный кабинет пользователя"
     },
     "description_pic_absolute_path": "C:\\Users\\webse\\OneDrive\\Рабочий стол\\willway\\web_admin/static/img/desc_20250331234430_20250331231326_IMG_3387.JPEG",
     "intro_video_file_id": "BAACAgIAAxkDAAIDXWfy31ZWbiVQN0G9q5RIKMw2UMKHAALrdAACr9eYS9lP2SjdHh-QNgQ",

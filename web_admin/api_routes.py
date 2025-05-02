@@ -54,13 +54,17 @@ def get_blogger_stats():
     blogger_id = request.args.get('id')
     access_key = request.args.get('key')
     
-    if not blogger_id or not access_key:
-        return jsonify({"success": False, "error": "Не указаны параметры доступа"}), 400
+    if not access_key:
+        return jsonify({"success": False, "error": "Не указан ключ доступа"}), 400
     
     db_session = get_session()
     try:
         # Проверка ключа доступа
+        if blogger_id:
         blogger = db_session.query(Blogger).filter_by(id=blogger_id, access_key=access_key).first()
+        else:
+            blogger = db_session.query(Blogger).filter_by(access_key=access_key).first()
+            
         if not blogger:
             return jsonify({"success": False, "error": "Нет доступа"}), 401
         
@@ -76,7 +80,7 @@ def get_blogger_stats():
             .scalar() or 0
         
         # Формируем реферальную ссылку
-        bot_username = current_app.config.get('TELEGRAM_BOT_USERNAME', 'your_main_bot')
+        bot_username = current_app.config.get('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')
         referral_link = f"https://t.me/{bot_username}?start=ref_{blogger.access_key}"
         
         # Получаем статистику по дням за последние 30 дней
@@ -415,7 +419,7 @@ def get_detailed_blogger_stats(blogger_id):
             .filter(*conversion_filter).scalar() or 0
             
         # Реферальная ссылка
-        bot_username = current_app.config.get('TELEGRAM_BOT_USERNAME', 'WILLWAY_ReferalBot')
+        bot_username = current_app.config.get('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')
         referral_link = f"https://t.me/{bot_username}?start=ref_{blogger.access_key}"
             
         # Конверсия в процентах
@@ -509,7 +513,7 @@ def get_blogger_referral_link():
             return jsonify({"success": False, "error": "Нет доступа"}), 401
         
         # Формируем реферальную ссылку
-        bot_username = current_app.config.get('TELEGRAM_BOT_USERNAME', 'WILLWAY_ReferalBot')
+        bot_username = current_app.config.get('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')
         referral_link = f"https://t.me/{bot_username}?start=ref_{blogger.access_key}"
         
         return jsonify({

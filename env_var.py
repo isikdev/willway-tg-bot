@@ -18,11 +18,20 @@ def setup_env():
         os.environ['TELEGRAM_TOKEN'] = os.getenv('BOT_TOKEN')
         print("Установлена переменная TELEGRAM_TOKEN из BOT_TOKEN")
     
+    # Настраиваем WEBHOOK_BASE_URL, если его нет
+    if not os.getenv('WEBHOOK_BASE_URL'):
+        # Предполагаем, что у вас есть публичный хост для вебхука
+        # Настройте здесь URL вашего сервера с https
+        public_url = "https://willway.yourserverdomain.com"  # Измените на ваш адрес
+        os.environ['WEBHOOK_BASE_URL'] = public_url
+        print(f"Установлена переменная WEBHOOK_BASE_URL: {public_url}")
+    
     # Проверяем наличие всех необходимых переменных
     required_vars = [
         "TELEGRAM_TOKEN",
         "DATABASE_URL",
         "OPENAI_API_KEY",
+        "WEBHOOK_BASE_URL"  # Добавляем вебхук в список необходимых переменных
     ]
     
     missing_vars = [var for var in required_vars if not os.getenv(var)]
