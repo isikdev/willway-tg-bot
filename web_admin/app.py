@@ -238,7 +238,11 @@ def get_user(user_id):
         'registration_date': user.registration_date.strftime('%d.%m.%Y') if user.registration_date else None,
         'is_subscribed': user.is_subscribed,
         'subscription_type': user.subscription_type,
-        'subscription_expires': user.subscription_expires.strftime('%d.%m.%Y') if user.subscription_expires else None
+        'subscription_expires': user.subscription_expires.strftime('%d.%m.%Y') if user.subscription_expires else None,
+        # Данные о сомнениях при выборе подписки
+        'subscription_doubt_status': user.subscription_doubt_status,
+        'subscription_doubt_response': user.subscription_doubt_response,
+        'subscription_doubt_feedback': user.subscription_doubt_feedback
     }
     
     db_session.close()

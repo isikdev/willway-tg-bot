@@ -32,6 +32,8 @@ from bot.gpt_assistant import get_health_assistant_response
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, Bot
 from telegram.ext import Updater, CallbackContext, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, Filters
+# Импортируем модуль обработки сомнений при подписке
+from bot.subscription_doubt_handler import setup_subscription_doubt_handlers
 
 import colorlog
 
@@ -308,7 +310,7 @@ def get_payment_keyboard(user_id, context=None):
     # Система оплаты не реализована
     
     keyboard = [
-        [InlineKeyboardButton("Варианты WILLWAY подписки:", url=payment_url)]
+        [InlineKeyboardButton("Варианты WILLWAY подписки", callback_data="show_subscription_options")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -1758,14 +1760,16 @@ def sport_frequency(update: Update, context: CallbackContext) -> int:
 
 def payment(update: Update, context: CallbackContext) -> int:
     """
-    Заглушка для функции оплаты (система оплаты отключена)
+    Функция для отображения вариантов подписки
     """
     user_id = update.effective_user.id
+    
+    # Получаем клавиатуру с вариантами подписки из модуля с обработкой сомнений
+    from bot.subscription_doubt_handler import get_subscription_keyboard
+    
     update.message.reply_text(
-        "Система оплаты в настоящее время отключена.",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]
-        ])
+        "Варианты WILLWAY подписки:",
+        reply_markup=get_subscription_keyboard()
     )
     return ConversationHandler.END
 
@@ -2208,6 +2212,51 @@ def handle_menu_callback(update: Update, context: CallbackContext):
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=payment_keyboard()
             )
+    # Обработка кнопок подписки из нового модуля
+    elif callback_data == "subscription_30days":
+        # Обработка выбора месячной подписки
+        logger.info(f"[PAYMENT_SELECTED] Пользователь {user_id} выбрал месячную подписку (30 дней)")
+        
+        # Генерируем URL оплаты и отправляем сообщение с ним
+        payment_url = generate_payment_url(user_id, "monthly")
+        if payment_url:
+            keyboard = [[InlineKeyboardButton("Оплатить", url=payment_url)]]
+            query.edit_message_text(
+                text="Отлично! Вы выбрали месячную подписку (30 дней) за 1.555 руб.\n\nНажмите кнопку ниже, чтобы перейти к оплате.",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            # Если не удалось создать ссылку, показываем сообщение об ошибке
+            query.edit_message_text(
+                text="Извините, в данный момент система оплаты недоступна. Пожалуйста, попробуйте позже.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]
+                ])
+            )
+        return
+    
+    elif callback_data == "subscription_1year":
+        # Обработка выбора годовой подписки
+        logger.info(f"[PAYMENT_SELECTED] Пользователь {user_id} выбрал годовую подписку")
+        
+        # Генерируем URL оплаты и отправляем сообщение с ним
+        payment_url = generate_payment_url(user_id, "yearly")
+        if payment_url:
+            keyboard = [[InlineKeyboardButton("Оплатить", url=payment_url)]]
+            query.edit_message_text(
+                text="Отлично! Вы выбрали годовую подписку за 13.333 руб. со скидкой 30% и доступом к тренеру.\n\nНажмите кнопку ниже, чтобы перейти к оплате.",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        else:
+            # Если не удалось создать ссылку, показываем сообщение об ошибке
+            query.edit_message_text(
+                text="Извините, в данный момент система оплаты недоступна. Пожалуйста, попробуйте позже.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]
+                ])
+            )
+        return
+    
     # Обработка кнопки запуска опроса
     elif callback_data == "start_survey":
         return start_survey(update, context)
@@ -2537,7 +2586,14 @@ def main():
         dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.chat_type.private & Filters.regex(r'^support:/'), handle_support_messages))
         dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command & Filters.chat_type.private, handle_text_messages))
         
-        # Обработчик callback-запросов
+        # Добавляем обработчики для схемы сомнений при выборе подписки
+        setup_subscription_doubt_handlers(dispatcher)
+        logger.info("Зарегистрированы обработчики для схемы сомнений при выборе подписки")
+        
+        # Обработчик для кнопки "Варианты WILLWAY подписки"
+        dispatcher.add_handler(CallbackQueryHandler(handle_show_subscription_options, pattern='^show_subscription_options$'))
+        
+        # Обработчик callback-запросов (общий - должен быть последним)
         dispatcher.add_handler(CallbackQueryHandler(handle_menu_callback))
         
         # Проверяем наличие переменных окружения для запуска в режиме webhook
@@ -3109,12 +3165,9 @@ def sport_frequency_keyboard():
 
 def payment_keyboard():
     """Клавиатура для выбора варианта подписки."""
-    keyboard = [
-        [InlineKeyboardButton("Месячная подписка", callback_data="monthly_subscription")],
-        [InlineKeyboardButton("Годовая подписка (экономия 33%)", callback_data="yearly_subscription")],
-        [InlineKeyboardButton("Назад в меню", callback_data="back_to_menu")]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+    # Используем клавиатуру из модуля сомнений при выборе подписки
+    from bot.subscription_doubt_handler import get_subscription_keyboard
+    return get_subscription_keyboard()
     
 def get_incomplete_payment_keyboard(user_id):
     keyboard = [
@@ -3273,8 +3326,8 @@ PAYMENT_SCENARIOS = {
     'CANCEL': 'cancel'
 }
 
-MONTHLY_SUBSCRIPTION_PRICE = 1990
-YEARLY_SUBSCRIPTION_PRICE = 14990
+MONTHLY_SUBSCRIPTION_PRICE = 1555
+YEARLY_SUBSCRIPTION_PRICE = 13333
 
 class PaymentTracker:
     def __init__(self, session=None):
@@ -3338,12 +3391,9 @@ def get_payment_keyboard_inline(user_id):
     monthly_yearly = MONTHLY_SUBSCRIPTION_PRICE * 12
     savings_percent = round((monthly_yearly - YEARLY_SUBSCRIPTION_PRICE) / monthly_yearly * 100)
     
-    # Генерируем URL для оплаты
-    payment_url_base = "https://willway.pro/payment?tgid="
-    
+    # Используем callback вместо URL
     keyboard = [
-        [InlineKeyboardButton(f"Месячная подписка - {monthly_price}", url=f"{payment_url_base}{user_id}")],
-        [InlineKeyboardButton(f"Годовая подписка - {yearly_price} (экономия {savings_percent}%)", url=f"{payment_url_base}{user_id}")],
+        [InlineKeyboardButton("Варианты WILLWAY подписки:", callback_data="show_subscription_options")],
         [InlineKeyboardButton("Назад в меню", callback_data="back_to_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -3732,3 +3782,27 @@ def show_referral_stats(update: Update, context: CallbackContext):
                 pass
     finally:
         session.close()
+
+def handle_show_subscription_options(update: Update, context: CallbackContext):
+    """
+    Обработчик нажатия на кнопку "Варианты WILLWAY подписки:"
+    Показывает варианты подписки с использованием обработчика сомнений
+    """
+    query = update.callback_query
+    query.answer()
+    
+    user_id = update.effective_user.id
+    logger.info(f"[CALLBACK] Пользователь {user_id} нажал кнопку 'Варианты WILLWAY подписки:'")
+    
+    # Импортируем функцию из модуля subscription_doubt_handler
+    # Импорт внутри функции, чтобы избежать циклического импорта
+    from bot.subscription_doubt_handler import get_subscription_keyboard
+    
+    # Показываем варианты подписки с возможностью выбрать "Подумаю"
+    # Передаем user_id для генерации правильных ссылок с Telegram ID
+    query.edit_message_text(
+        text="Варианты WILLWAY подписки:",
+        reply_markup=get_subscription_keyboard(user_id)
+    )
+    
+    return

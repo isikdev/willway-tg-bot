@@ -58,6 +58,11 @@ class User(db.Model):
     subscription_type = Column(String(20), nullable=True)
     subscription_expires = Column(DateTime, nullable=True)
     
+    # Данные о сомнениях при выборе подписки
+    subscription_doubt_status = Column(String(50), nullable=True)  # "Показ вариантов", "Дорого", "Насчет результата"
+    subscription_doubt_response = Column(String(100), nullable=True)  # Ответ пользователя на сомнение
+    subscription_doubt_feedback = Column(Text, nullable=True)  # Обратная связь пользователя после отказа
+    
     # Реферальные данные
     referral_code = Column(String(20), nullable=True)
     referred_by = Column(String(20), nullable=True)
