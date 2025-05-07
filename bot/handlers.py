@@ -259,15 +259,6 @@ def apply_bot_config(bot, config):
                 except Exception as e:
                     logger.error(f"Ошибка при обновлении команд бота: {e}")
         
-        # Обновление имени и описания бота через BotFather требует отдельного API
-        # Это нельзя сделать автоматически через python-telegram-bot
-        # Вместо этого, мы можем вывести сообщение для администратора с инструкциями
-        
-        # В будущих версиях можно добавить автоматическое обновление через прямой API Telegram
-        # Например, используя requests для отправки запросов к API:
-        # response = requests.post(f"https://api.telegram.org/bot{TOKEN}/setMyName", 
-        #    data={"name": config.get('bot_name')})
-        
         # Для настроек, которые можно применить на лету в коде
         if 'privacy_mode' in config:
             # Например, можно хранить в боте настройку, которая влияет на обработку сообщений
@@ -275,8 +266,44 @@ def apply_bot_config(bot, config):
             applied_settings["privacy_mode"] = True
             logger.info(f"Обновлен режим приватности: {config.get('privacy_mode')}")
         
-        # Если настройки имени, описания и т.д. можно как-то применить к боту,
-        # то код для этого можно добавить здесь
+        # Используем новый модуль для обновления метаданных бота
+        try:
+            from bot.bot_updater import apply_bot_settings
+            
+            # Получаем токен бота
+            token = config.get("bot_token") or os.getenv("TELEGRAM_TOKEN")
+            
+            if token:
+                logger.info("Применяем настройки бота через API Telegram...")
+                api_results = apply_bot_settings(token, config)
+                
+                # Обновляем результаты применения настроек
+                if api_results:
+                    if api_results.get("name"):
+                        applied_settings["bot_name"] = True
+                        logger.info("Имя бота успешно обновлено через API")
+                    
+                    if api_results.get("description"):
+                        applied_settings["description"] = True
+                        logger.info("Описание бота успешно обновлено через API")
+                    
+                    if api_results.get("about"):
+                        applied_settings["about_text"] = True
+                        logger.info("Информация 'О боте' успешно обновлена через API")
+                    
+                    if api_results.get("profile_photo"):
+                        applied_settings["botpic"] = True
+                        logger.info("Аватар бота успешно обновлен через API")
+                    
+                    logger.info(f"Результаты применения настроек через API: {api_results}")
+                else:
+                    logger.warning("Не удалось применить настройки бота через API Telegram")
+            else:
+                logger.warning("Не найден токен бота для применения настроек через API Telegram")
+        except ImportError:
+            logger.warning("Модуль bot_updater не установлен, метаданные бота не обновлены")
+        except Exception as e:
+            logger.error(f"Ошибка при применении настроек бота через API Telegram: {e}")
         
         return applied_settings
         
@@ -487,22 +514,52 @@ def health_assistant_button(update: Update, context: CallbackContext):
     context.user_data['health_assistant_active'] = True
     logger.info(f"Активирован режим Health ассистента для пользователя {user_id}")
     
-    # Если подписка активна, отправляем приветствие Health ассистента
+    # Получаем информацию о пользователе из базы данных
+    session = get_session()
+    user = session.query(User).filter(User.user_id == str(user_id)).first()
+    
+    # Определяем какое приветствие показывать
+    if user and user.health_assistant_first_time:
+        # Первый запуск ассистента - показываем полное приветствие
+        greeting_text = (
+            "Привет! Я твой личный health-ассистент WILLWAY. Помогу тебе создать здоровое подтянутое тело, улучшить ментальное состояние и внедрить новые привычки, которые реально улучшают качество жизни.\n\n"
+            "Я здесь, чтобы поддерживать тебя на пути, не давая сбиться с курса, мотивировать и подсказывать, что делать на каждом этапе.\n\n"
+            "Скажи с чего начнем: \n"
+            "- Программа тренировок \n"
+            "- Программа питания/разбор анализов \n"
+            "- Программа восстановления ментального состояния."
+        )
+        
+        # Обновляем флаг первого запуска
+        user.health_assistant_first_time = False
+        session.commit()
+    else:
+        # Повторный запуск - показываем персонализированное приветствие
+        if update.message:
+            user_first_name = update.message.from_user.first_name
+        else:
+            user_first_name = update.callback_query.from_user.first_name
+        
+        greeting_text = (
+            f"Рад видеть тебя снова, {user_first_name}. В чем нужна помощь сегодня?\n"
+            "- Тренировки\n"
+            "- Питание\n"
+            "- Ментальное состояние\n"
+            "- Другой запрос"
+        )
+    
+    session.close()
+    
+    # Отправляем приветствие
     if update.message:
         message.reply_text(
-            "Привет! Я твой Health ассистент, специализирующийся на физическом и ментальном здоровье. "
-            "Я могу помочь тебе с вопросами о тренировках, питании и общем благополучии. "
-            "Просто задай свой вопрос, и я постараюсь дать персонализированный ответ.\n\n"
-            "Чтобы вернуться в главное меню, нажми кнопку 'Назад'.",
+            greeting_text,
             reply_markup=ReplyKeyboardMarkup([["Назад"]], resize_keyboard=True)
         )
     else:
         context.bot.send_message(
             chat_id=user_id,
-            text="Привет! Я твой Health ассистент, специализирующийся на физическом и ментальном здоровье. "
-            "Я могу помочь тебе с вопросами о тренировках, питании и общем благополучии. "
-            "Просто задай свой вопрос, и я постараюсь дать персонализированный ответ.\n\n"
-            "Чтобы вернуться в главное меню, нажми кнопку 'Назад'.",
+            text=greeting_text,
             reply_markup=ReplyKeyboardMarkup([["Назад"]], resize_keyboard=True)
         )
     
@@ -709,21 +766,15 @@ def back_to_main_menu(update: Update, context: CallbackContext):
             query = update.callback_query
             query.answer()
             
-            # Сначала отредактируем текущее сообщение, чтобы убрать inline кнопки
-            try:
-                query.edit_message_text("Главное меню:")
-            except Exception as e:
-                logger.error(f"Ошибка при редактировании сообщения: {e}")
-            
-            # Затем отправим новое сообщение с основной клавиатурой внизу
+            # Отправляем новое сообщение с reply клавиатурой внизу
             context.bot.send_message(
                 chat_id=user_id,
-                text="Выберите действие:",
+                text="Рад видеть вас снова! Выберите действие из меню:",
                 reply_markup=get_main_keyboard()
             )
         else:
             update.message.reply_text(
-                "Выберите действие:",
+                "Рад видеть вас снова! Выберите действие из меню:",
                 reply_markup=get_main_keyboard()
             )
         
@@ -742,28 +793,22 @@ def back_to_main_menu(update: Update, context: CallbackContext):
                 query = update.callback_query
                 query.answer()
                 
-                # Пробуем отредактировать текущее сообщение
-                try:
-                    query.edit_message_text("Главное меню:")
-                except Exception as e:
-                    logger.error(f"Ошибка при редактировании сообщения: {e}")
-                
-                # Отправляем новое сообщение с основной клавиатурой
+                # Отправляем новое сообщение с reply клавиатурой
                 context.bot.send_message(
                     chat_id=user_id,
-                    text="Выберите действие:",
+                    text="Рад видеть вас снова! Выберите действие из меню:",
                     reply_markup=get_main_keyboard()
                 )
             except Exception as edit_error:
                 logger.error(f"[MENU_ERROR] Не удалось отправить сообщение: {edit_error}")
                 if update.message:
                     update.message.reply_text(
-                        "Выберите действие:",
+                        "Рад видеть вас снова! Выберите действие из меню:",
                         reply_markup=get_main_keyboard()
                     )
         else:
             update.message.reply_text(
-                "Выберите действие:",
+                "Рад видеть вас снова! Выберите действие из меню:",
                 reply_markup=get_main_keyboard()
             )
         
@@ -865,8 +910,8 @@ def start(update: Update, context: CallbackContext) -> int:
                     
                     # Показываем меню в любом случае
                     update.message.reply_text(
-                        "Главное меню:",
-                        reply_markup=InlineKeyboardMarkup(menu_keyboard())
+                        "Рад видеть вас снова! Выберите действие из меню:",
+                        reply_markup=get_main_keyboard()
                     )
                     
                     session.close()
@@ -1031,11 +1076,6 @@ def start(update: Update, context: CallbackContext) -> int:
         update.message.reply_text(
             "Рад видеть вас снова! Выберите действие из меню:",
             reply_markup=get_main_keyboard()
-        )
-                
-        update.message.reply_text(
-            "Главное меню:",
-            reply_markup=InlineKeyboardMarkup(menu_keyboard())
         )
         
         if user and user.payment_status == 'pending' and not user.is_subscribed:
@@ -1842,7 +1882,7 @@ def sport_frequency(update: Update, context: CallbackContext) -> int:
                 context.user_data['bot_messages'].append(bot_message.message_id)
             context.bot.send_message(
                 chat_id=user_id,
-                text="Главное меню:",
+                text="Рад видеть вас снова! Выберите действие из меню:",
                 reply_markup=get_main_keyboard()
             )
         except Exception as e:
@@ -1935,10 +1975,12 @@ def handle_menu_callback(update: Update, context: CallbackContext):
         
         # Если подписка активна, отправляем приветствие Health ассистента
         query.edit_message_text(
-            "Привет! Я твой Health ассистент, специализирующийся на физическом и ментальном здоровье. "
-            "Я могу помочь тебе с вопросами о тренировках, питании и общем благополучии. "
-            "Просто задай свой вопрос, и я постараюсь дать персонализированный ответ.\n\n"
-            "Чтобы вернуться в главное меню, нажми кнопку 'Назад'.",
+            "Привет! Я твой личный health-ассистент WILLWAY. Помогу тебе создать здоровое подтянутое тело, улучшить ментальное состояние и внедрить новые привычки, которые реально улучшают качество жизни.\n\n"
+            "Я здесь, чтобы поддерживать тебя на пути, не давая сбиться с курса, мотивировать и подсказывать, что делать на каждом этапе.\n\n"
+            "Скажи с чего начнем: \n"
+            "- Программа тренировок \n"
+            "- Программа питания/разбор анализов \n"
+            "- Программа восстановления ментального состояния.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]])
         )
         
@@ -1978,8 +2020,7 @@ def handle_menu_callback(update: Update, context: CallbackContext):
                     # Создаем клавиатуру для управления подпиской
                     keyboard = [
                         [InlineKeyboardButton("Продлить подписку", callback_data="renew_subscription")],
-                        [get_cancel_subscription_button()],
-                        [InlineKeyboardButton("Назад", callback_data="back_to_menu")]
+                        [get_cancel_subscription_button()]
                     ]
                     
                     # Отправляем информацию о подписке
@@ -2240,11 +2281,9 @@ def handle_menu_callback(update: Update, context: CallbackContext):
 
     # Обработка кнопки "Назад в меню"
     elif callback_data == "back_to_menu":
-        query.edit_message_text(
-            "Главное меню WILLWAY:",
-            reply_markup=InlineKeyboardMarkup(menu_keyboard())
-        )
-        return
+        logger.info(f"[MENU] Пользователь {user_id} нажал кнопку 'Назад', возвращаемся в главное меню")
+        # Вызываем функцию возврата в главное меню
+        return back_to_main_menu(update, context)
         
     # Обработка кнопок подписки
     # Обработка кнопок для оплаты
@@ -2967,61 +3006,45 @@ def show_menu(update: Update, context: CallbackContext):
     # Проверяем подписку в базе данных
     is_subscribed = update_subscription_status(user_id, context)
     
-    # Отправляем приветствие с кнопками
-    keyboard = [
-        [InlineKeyboardButton("Health ассистент", callback_data="health_assistant")],
-        [InlineKeyboardButton("Управление подпиской", callback_data="subscription_management")],
-        [InlineKeyboardButton("Связь с поддержкой", callback_data="support")],
-        [InlineKeyboardButton("Пригласить друга", callback_data="invite_friend")]
-    ]
-    
+    # Отправляем приветствие с reply клавиатурой (вместо inline кнопок)
     update.message.reply_text(
-        "Главное меню WILLWAY:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        "Рад видеть вас снова! Выберите действие из меню:",
+        reply_markup=get_main_keyboard()
     )
     
     return ConversationHandler.END
 
 def cancel(update: Update, context: CallbackContext) -> int:
-    """Отмена регистрации."""
     update.message.reply_text('Регистрация отменена.')
     return ConversationHandler.END
 
 def handle_text_messages(update: Update, context: CallbackContext):
-    """Обработка текстовых сообщений от кнопок главного меню и обычных сообщений."""
-    # Получаем данные пользователя
     message = update.message
     text = message.text
     user_id = message.from_user.id
     
-    # Обрабатываем кнопку "Назад" отдельно, независимо от контекста
     if text == "Назад":
         logger.info(f"Пользователь {user_id} нажал кнопку 'Назад', возвращаемся в главное меню")
         return back_to_main_menu(update, context)
     
-    # Проверяем, находится ли пользователь в процессе отмены подписки
     if 'cancellation' in context.user_data:
         logger.info(f"Перенаправление сообщения пользователя {user_id} в обработчик отмены подписки: {text}")
         return False  # Пропускаем этот обработчик, позволяя обработчику отмены подписки обработать сообщение
     
-    # Обработка команды reload для администратора
     if text == "/reload" or text == "reload":
         if is_admin(user_id):
             return reload_config(update, context)
         return
     
-    # Если активен Health ассистент, передаем сообщение для обработки
     if context.user_data.get('health_assistant_active'):
         logger.info(f"Обработка сообщения для Health ассистента от пользователя {user_id}: {text}")
         forward_to_health_assistant(update, context)
         return
     
-    # Обработка кнопки "Health ассистент"
     if text == "Health ассистент":
         logger.info(f"Пользователь {user_id} нажал кнопку 'Health ассистент'")
         return health_assistant_button(update, context)
     
-    # Обработка кнопки "Управление подпиской"
     if text == "Управление подпиской":
         logger.info(f"Пользователь {user_id} нажал кнопку 'Управление подпиской'")
         try:
@@ -3034,22 +3057,17 @@ def handle_text_messages(update: Update, context: CallbackContext):
                 subscription_expires = user_db.subscription_expires
                 
                 if is_subscribed and subscription_expires:
-                    # Форматируем дату окончания подписки
                     expires_date = subscription_expires.strftime("%d.%m.%Y")
                     remaining_days = (subscription_expires - datetime.now()).days
                     
-                    # Определяем тип подписки для отображения
                     sub_type = "месячная" if subscription_type == "monthly" else "годовая"
                     
-                    # Получаем username менеджера из конфигурации
                     config = get_bot_config()
                     manager_username = config.get("manager_username", "willway_manager")
                     
-                    # Создаем клавиатуру для управления подпиской
                     keyboard = [
                         [InlineKeyboardButton("Продлить подписку", callback_data="renew_subscription")],
-                        [get_cancel_subscription_button()],
-                        [InlineKeyboardButton("Назад", callback_data="back_to_menu")]
+                        [get_cancel_subscription_button()]
                     ]
                     
                     # Отправляем информацию о подписке

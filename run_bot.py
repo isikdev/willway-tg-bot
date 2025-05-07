@@ -123,6 +123,22 @@ def run_telegram_bot():
         version = telegram.__version__
         logger.info(f"Используется python-telegram-bot версии {version}")
         
+        # Перед запуском бота удаляем webhook, чтобы избежать конфликтов
+        try:
+            # Получаем токен бота
+            token = os.getenv("TELEGRAM_TOKEN")
+            if token:
+                import requests
+                # Удаляем вебхук
+                webhook_url = f"https://api.telegram.org/bot{token}/deleteWebhook"
+                response = requests.get(webhook_url)
+                if response.status_code == 200 and response.json().get("ok"):
+                    logger.info("Webhook успешно удален перед запуском бота")
+                else:
+                    logger.warning(f"Ошибка при удалении webhook: {response.text}")
+        except Exception as e:
+            logger.error(f"Ошибка при попытке удалить webhook: {e}")
+        
         try:
             # Создаем фиктивные классы для совместимости
             import sys

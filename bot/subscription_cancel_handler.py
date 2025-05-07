@@ -32,6 +32,7 @@ CANCEL_CONFIRM = 'CANCEL_CONFIRM'
 
 # Callback данные
 CANCEL_SUBSCRIPTION = "cancel_subscription"
+CANCEL_SUBSCRIPTION_START = "cancel_subscription_start"
 BACK_TO_MENU = "back_to_menu"
 CONFIRM_CANCEL = "confirm_cancel"
 
@@ -71,6 +72,13 @@ def get_cancel_confirm_keyboard():
     ]
     return InlineKeyboardMarkup(keyboard)
 
+def get_cancel_subscription_button():
+    """
+    Получение кнопки для отмены подписки (для использования в других модулях)
+    """
+    logger.info(f"Создание кнопки отмены подписки с callback_data={CANCEL_SUBSCRIPTION_START}")
+    return InlineKeyboardButton("Отменить подписку", callback_data=CANCEL_SUBSCRIPTION_START)
+
 def start_cancellation(update: Update, context: CallbackContext):
     """
     Начало процесса отмены подписки (Шаг 1)
@@ -78,7 +86,9 @@ def start_cancellation(update: Update, context: CallbackContext):
     user_id = update.effective_user.id
     query = update.callback_query
     
-    logger.info(f"[DEBUG] Начало процесса отмены подписки для пользователя {user_id}")
+    # Дополнительное логирование параметров запроса
+    callback_data = query.data if query else "Нет данных"
+    logger.info(f"[DEBUG] Начало процесса отмены подписки для пользователя {user_id} с callback_data={callback_data}")
     
     # Инициализируем объект отмены
     context.user_data['cancellation'] = {
@@ -99,11 +109,20 @@ def start_cancellation(update: Update, context: CallbackContext):
 
 После этого у тебя больше не будет доступа ко всем материалам приложения и канала"""
     
-    query.answer()
-    query.edit_message_text(
-        text=message,
-        reply_markup=get_cancel_subscription_keyboard()
-    )
+    # Обрабатываем callback
+    if query:
+        query.answer()
+        query.edit_message_text(
+            text=message,
+            reply_markup=get_cancel_subscription_keyboard()
+        )
+    else:
+        # Если вызов не из callback query, отправляем сообщение напрямую
+        context.bot.send_message(
+            chat_id=user_id,
+            text=message,
+            reply_markup=get_cancel_subscription_keyboard()
+        )
     
     logger.info(f"[DEBUG] Переход к состоянию CANCEL_REASON_1 для пользователя {user_id}")
     return CANCEL_REASON_1
@@ -319,11 +338,24 @@ def save_cancellation_reasons(user_id, reasons):
         session.close()
 
 def back_to_menu(update, context):
-    query = update.callback_query
-    query.answer()
+    """
+    Функция для возврата в главное меню
+    """
+    # Обрабатываем возврат как из callback query, так и из обычного сообщения
+    if update.callback_query:
+        query = update.callback_query
+        query.answer()
     
-    from bot.handlers import show_menu
-    return show_menu(update, context)
+    # Импортируем back_to_main_menu из handlers.py
+    from bot.handlers import back_to_main_menu
+    from telegram.ext import ConversationHandler
+    
+    # Вызываем функцию перехода в главное меню
+    logger.info(f"Возврат в главное меню для пользователя {update.effective_user.id}")
+    back_to_main_menu(update, context)
+    
+    # Возвращаем END для корректного завершения диалога отмены подписки
+    return ConversationHandler.END
 
 def process_subscription_webhook(data, bot=None, task_id=None):
     """
@@ -632,8 +664,9 @@ def setup_subscription_cancel_handlers(dispatcher):
     # Обработчики для процесса отмены подписки
     cancel_handler = ConversationHandler(
         entry_points=[
+            # Добавляем обработчики для обоих паттернов
             CallbackQueryHandler(start_cancellation, pattern=f'^{CANCEL_SUBSCRIPTION}$'),
-            CallbackQueryHandler(start_cancellation, pattern='^cancel_subscription_start$')
+            CallbackQueryHandler(start_cancellation, pattern=f'^{CANCEL_SUBSCRIPTION_START}$')
         ],
         states={
             CANCEL_REASON_1: [
@@ -663,6 +696,12 @@ def setup_subscription_cancel_handlers(dispatcher):
     # Добавляем обработчик в диспетчер
     dispatcher.add_handler(cancel_handler)
     
+    # Добавляем отдельный обработчик для глобального шаблона отмены подписки
+    dispatcher.add_handler(
+        CallbackQueryHandler(start_cancellation, pattern=f'^{CANCEL_SUBSCRIPTION_START}$'),
+        group=1  # Используем отдельную группу с более низким приоритетом
+    )
+    
     # Добавляем отдельный высокоприоритетный обработчик для текстовых сообщений в процессе отмены
     dispatcher.add_handler(
         MessageHandler(Filters.text & ~Filters.command & cancellation_filter, 
@@ -676,13 +715,13 @@ def setup_subscription_cancel_handlers(dispatcher):
         pattern='^renew_subscription$'
     ))
     
-    logger.info("Обработчики отмены подписки успешно настроены")
-
-def get_cancel_subscription_button():
-    """
-    Получение кнопки для отмены подписки (для использования в других модулях)
-    """
-    return InlineKeyboardButton("Отменить подписку", callback_data="cancel_subscription_start")
+    # Добавляем отдельный обработчик для кнопки "Вернуться в меню"
+    dispatcher.add_handler(
+        CallbackQueryHandler(back_to_menu, pattern=f'^{BACK_TO_MENU}$'),
+        group=1  # Используем ту же группу, что и для глобальных обработчиков
+    )
+    
+    logger.info(f"Обработчики отмены подписки успешно настроены: {CANCEL_SUBSCRIPTION}, {CANCEL_SUBSCRIPTION_START}, {BACK_TO_MENU}")
 
 def show_subscription_options(update: Update, context: CallbackContext):
     """
@@ -763,8 +802,7 @@ def show_subscription_management(update: Update, context: CallbackContext):
 
                     # Клавиатура для возобновления подписки
                     keyboard = [
-                        [InlineKeyboardButton("Возобновить подписку", callback_data="renew_subscription")],
-                        [InlineKeyboardButton("« Назад", callback_data=BACK_TO_MENU)]
+                        [InlineKeyboardButton("Возобновить подписку", callback_data="renew_subscription")]
                     ]
                 else:
                     # Если подписка активна и не отменена
@@ -778,8 +816,7 @@ def show_subscription_management(update: Update, context: CallbackContext):
 
                     # Клавиатура с кнопкой отмены
                     keyboard = [
-                        [InlineKeyboardButton("Отключить автопродление", callback_data="cancel_subscription_start")],
-                        [InlineKeyboardButton("« Назад", callback_data=BACK_TO_MENU)]
+                        [InlineKeyboardButton("Отключить автопродление", callback_data="cancel_subscription_start")]
                     ]
             else:
                 # Если подписка неактивна
@@ -790,13 +827,11 @@ def show_subscription_management(update: Update, context: CallbackContext):
 
                 # Клавиатура для оформления подписки
                 keyboard = [
-                    [InlineKeyboardButton("Оформить подписку", callback_data="show_subscription_options")],
-                    [InlineKeyboardButton("« Назад", callback_data=BACK_TO_MENU)]
+                    [InlineKeyboardButton("Оформить подписку", callback_data="show_subscription_options")]
                 ]
             
             # Отправляем сообщение
             if update.callback_query:
-                # Если вызвано из callback query
                 query = update.callback_query
                 query.answer()
                 query.edit_message_text(
@@ -804,7 +839,6 @@ def show_subscription_management(update: Update, context: CallbackContext):
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             else:
-                # Если вызвано из текстового сообщения
                 update.message.reply_text(
                     message,
                     reply_markup=InlineKeyboardMarkup(keyboard)
@@ -820,12 +854,12 @@ def show_subscription_management(update: Update, context: CallbackContext):
                 query.answer()
                 query.edit_message_text(
                     text=error_message,
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Назад", callback_data=BACK_TO_MENU)]])
+                    reply_markup=InlineKeyboardMarkup([])
                 )
             else:
                 update.message.reply_text(
                     error_message,
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Назад", callback_data=BACK_TO_MENU)]])
+                    reply_markup=InlineKeyboardMarkup([])
                 )
             
             logger.warning(f"[WARNING] Пользователь {user_id} не найден в базе данных при попытке показать информацию о подписке")
@@ -839,12 +873,12 @@ def show_subscription_management(update: Update, context: CallbackContext):
             query.answer()
             query.edit_message_text(
                 text=error_message,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Назад", callback_data=BACK_TO_MENU)]])
+                reply_markup=InlineKeyboardMarkup([])
             )
         else:
             update.message.reply_text(
                 error_message,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("« Назад", callback_data=BACK_TO_MENU)]])
+                reply_markup=InlineKeyboardMarkup([])
             )
     finally:
         session.close()

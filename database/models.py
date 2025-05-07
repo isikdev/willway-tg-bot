@@ -83,6 +83,7 @@ class User(db.Model):
     referrer_id = Column(String(50), nullable=True)
     referral_source = Column(String(50), nullable=True)
     blogger_ref_code = Column(String(100), nullable=True)  # Код реферальной ссылки блогера
+    health_assistant_first_time = Column(Boolean, default=True)  # Флаг первого использования health ассистента
     
     # Отношения
     payments = relationship("Payment", back_populates="user")
