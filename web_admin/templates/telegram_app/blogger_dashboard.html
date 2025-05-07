@@ -167,7 +167,7 @@
                             
                             // Заполняем информацию о блогере
                             document.getElementById('blogger-name').textContent = data.blogger_name;
-                            document.getElementById('blogger-info').textContent = `ID: ${data.blogger_id} · Создан: ${formatDate(data.created_at)}`;
+                            document.getElementById('blogger-info').textContent = `ID: ${data.blogger_id} · Создан: ${formatDate(data.join_date)}`;
                             
                             // Заполняем статистику
                             document.getElementById('total-referrals').textContent = formatNumber(data.total_referrals);
@@ -236,7 +236,7 @@
                                         <div class="flex justify-between items-start">
                                             <div>
                                                 <p>${referral.source || 'Неизвестный источник'}</p>
-                                                <p class="hint text-sm">${formatDateTime(referral.created_at)}</p>
+                                                <p class="hint text-sm">${formatDateTime(referral.join_date)}</p>
                                             </div>
                                             <span class="${statusClass} text-sm">${statusText}</span>
                                         </div>

@@ -124,7 +124,11 @@
                             </td>
                             <td
                                 class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                {{ code.created_at.strftime('%d.%m.%Y %H:%M') }}
+                                {% if code.created_at %}
+                                {{ format_date(code.created_at) }}
+                                {% else %}
+                                Нет данных
+                                {% endif %}
                             </td>
                             <td
                                 class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -147,13 +151,23 @@
                             <td
                                 class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                 {% if code.is_active %}
-                                <a
-                                    href="{{ url_for('toggle_referral_code', code_id=code.id) }}"
-                                    class="text-red-600 hover:text-red-900">Деактивировать</a>
+                                <form
+                                    action="{{ url_for('toggle_referral_code') }}"
+                                    method="POST" style="display: inline;">
+                                    <input type="hidden" name="code_id"
+                                        value="{{ code.id }}">
+                                    <button type="submit"
+                                        class="text-red-600 hover:text-red-900 bg-transparent border-0 p-0 cursor-pointer">Деактивировать</button>
+                                </form>
                                 {% else %}
-                                <a
-                                    href="{{ url_for('toggle_referral_code', code_id=code.id) }}"
-                                    class="text-green-600 hover:text-green-900">Активировать</a>
+                                <form
+                                    action="{{ url_for('toggle_referral_code') }}"
+                                    method="POST" style="display: inline;">
+                                    <input type="hidden" name="code_id"
+                                        value="{{ code.id }}">
+                                    <button type="submit"
+                                        class="text-green-600 hover:text-green-900 bg-transparent border-0 p-0 cursor-pointer">Активировать</button>
+                                </form>
                                 {% endif %}
                             </td>
                         </tr>
@@ -229,7 +243,11 @@
                             </td>
                             <td
                                 class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                {{ use.used_at.strftime('%d.%m.%Y %H:%M') }}
+                                {% if use.used_at %}
+                                {{ format_date(use.used_at) }}
+                                {% else %}
+                                Нет данных
+                                {% endif %}
                             </td>
                             <td
                                 class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -244,11 +262,10 @@
                             </td>
                             <td
                                 class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                {% if use.subscription_purchased %}
-                                {{ use.purchase_date.strftime('%d.%m.%Y %H:%M')
-                                if use.purchase_date else "—" }}
+                                {% if use.purchase_date %}
+                                {{ format_date(use.purchase_date) }}
                                 {% else %}
-                                —
+                                Нет данных
                                 {% endif %}
                             </td>
                             <td

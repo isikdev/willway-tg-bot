@@ -446,10 +446,17 @@
                                                 user.email or "Не указано"
                                                 }}</td>
                                             <td
-                                                class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{{
+                                                class="px-4 py-2 whitespace-nowrap text-sm text-gray-500">
+                                                {% if user.registration_date %}
+                                                {{
                                                 user.registration_date.strftime('%d.%m.%Y')
-                                                if user.registration_date else
-                                                "Не указано" }}</td>
+                                                if user.registration_date is not
+                                                string else
+                                                user.registration_date }}
+                                                {% else %}
+                                                Не указано
+                                                {% endif %}
+                                            </td>
                                             <td
                                                 class="px-4 py-2 whitespace-nowrap text-right text-sm font-medium">
                                                 <form
@@ -554,7 +561,7 @@
 
                 <!-- Кнопки управления -->
                 <div class="flex justify-between">
-                    <a href="{{ url_for('dashboard') }}"
+                    <a href="{{ url_for('admin_dashboard') }}"
                         class="inline-flex items-center rounded-md bg-gray-100 px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-300 transition-all duration-300">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none"
                             viewBox="0 0 24 24" stroke-width="1.5"

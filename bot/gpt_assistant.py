@@ -2,7 +2,7 @@ import os
 from openai import OpenAI
 from dotenv import load_dotenv
 from database.models import get_session, User, ChatHistory
-import datetime
+from datetime import datetime, timedelta
 
 # Загружаем переменные окружения
 load_dotenv()

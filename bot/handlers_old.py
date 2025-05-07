@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union, Any, Callable
 import traceback
 import random
-from sqlalchemy import or_
 
 load_dotenv()
 
@@ -31,12 +30,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from database.models import User, get_session, AdminUser, MessageHistory, ReferralCode, ReferralUse, ChatHistory, Payment
 from bot.gpt_assistant import get_health_assistant_response
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, Bot, ChatAction
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, Bot
 from telegram.ext import Updater, CallbackContext, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, Filters
 # Импортируем модуль обработки сомнений при подписке
 from bot.subscription_doubt_handler import setup_subscription_doubt_handlers
-# Импортируем модуль отмены подписки
-from bot.subscription_cancel_handler import get_cancel_subscription_button, setup_subscription_cancel_handlers
 
 import colorlog
 
@@ -457,54 +454,27 @@ user_conversations = {}
 # Обработчик для кнопки "Health ассистент"
 def health_assistant_button(update: Update, context: CallbackContext):
     """Обработка нажатия на кнопку Health ассистент"""
-    if update.message:
-        message = update.message
-        user_id = message.from_user.id
-    else:
-        query = update.callback_query
-        query.answer()
-        message = query.message
-        user_id = query.from_user.id
+    message = update.message
+    user_id = message.from_user.id
     
     # Проверяем подписку через базу данных
     is_subscribed = update_subscription_status(user_id, context)
     
     if not is_subscribed:
-        if update.message:
-            message.reply_text(
-                "Для доступа к Health ассистенту необходимо оформить подписку.",
-                reply_markup=get_payment_keyboard_inline(user_id)
-            )
-        else:
-            context.bot.send_message(
-                chat_id=user_id,
-                text="Для доступа к Health ассистенту необходимо оформить подписку.",
-                reply_markup=get_payment_keyboard_inline(user_id)
-            )
+        message.reply_text(
+            "Для доступа к Health ассистенту необходимо оформить подписку.",
+            reply_markup=get_payment_keyboard_inline(user_id)
+        )
         return
     
-    # Устанавливаем флаг активности Health ассистента
-    context.user_data['health_assistant_active'] = True
-    logger.info(f"Активирован режим Health ассистента для пользователя {user_id}")
-    
     # Если подписка активна, отправляем приветствие Health ассистента
-    if update.message:
-        message.reply_text(
-            "Привет! Я твой Health ассистент, специализирующийся на физическом и ментальном здоровье. "
-            "Я могу помочь тебе с вопросами о тренировках, питании и общем благополучии. "
-            "Просто задай свой вопрос, и я постараюсь дать персонализированный ответ.\n\n"
-            "Чтобы вернуться в главное меню, нажми кнопку 'Назад'.",
-            reply_markup=ReplyKeyboardMarkup([["Назад"]], resize_keyboard=True)
-        )
-    else:
-        context.bot.send_message(
-            chat_id=user_id,
-            text="Привет! Я твой Health ассистент, специализирующийся на физическом и ментальном здоровье. "
-            "Я могу помочь тебе с вопросами о тренировках, питании и общем благополучии. "
-            "Просто задай свой вопрос, и я постараюсь дать персонализированный ответ.\n\n"
-            "Чтобы вернуться в главное меню, нажми кнопку 'Назад'.",
-            reply_markup=ReplyKeyboardMarkup([["Назад"]], resize_keyboard=True)
-        )
+    message.reply_text(
+        "Привет! Я твой Health ассистент, специализирующийся на физическом и ментальном здоровье. "
+        "Я могу помочь тебе с вопросами о тренировках, питании и общем благополучии. "
+        "Просто задай свой вопрос, и я постараюсь дать персонализированный ответ.\n\n"
+        "Чтобы вернуться в главное меню, нажми кнопку 'Назад'.",
+        reply_markup=ReplyKeyboardMarkup([["Назад"]], resize_keyboard=True)
+    )
     
     # Инициализируем историю разговора для пользователя, если её нет
     if user_id not in user_conversations:
@@ -567,96 +537,44 @@ def save_message_to_history(user_id, role, content):
 # Обработчик для текстовых сообщений в режиме Health ассистента
 def handle_health_assistant_message(update: Update, context: CallbackContext):
     """Обработка сообщений для Health ассистента"""
-    # Проверяем, активен ли процесс отмены подписки
-    if context.user_data.get('cancellation', {}).get('active', False):
-        logger.info(f"Пропуск обработки Health ассистентом - активен процесс отмены подписки")
-        return
-        
-    # Получаем сообщение и ID пользователя
-    if update.callback_query:
-        message = update.callback_query.message
-        user_id = update.callback_query.from_user.id
-        user_message = update.callback_query.message.text
-    else:
-        message = update.message
-        user_id = message.from_user.id
-        user_message = message.text
+    message = update.message
+    user_id = message.from_user.id
+    user_message = message.text
     
-    # Примечание: Обработка кнопки "Назад" перенесена в handle_text_messages
+    # Если пользователь нажал кнопку "Назад", возвращаемся в главное меню
+    if user_message == "Назад":
+        back_to_main_menu(update, context)
+        return
     
     # Проверяем подписку через базу данных
     is_subscribed = update_subscription_status(user_id, context)
     
     if not is_subscribed:
-        # Если у пользователя нет подписки, предлагаем оформить
-        response = "Для доступа к Health ассистенту необходимо оформить подписку."
-        
-        if update.callback_query:
-            update.callback_query.message.reply_text(
-                response,
-                reply_markup=get_payment_keyboard_inline(user_id)
-            )
-        else:
-            message.reply_text(
-                response,
-                reply_markup=get_payment_keyboard_inline(user_id)
-            )
-        
-        # Сбрасываем флаг активности Health ассистента
-        context.user_data['health_assistant_active'] = False
+        message.reply_text(
+            "Для доступа к Health ассистенту необходимо оформить подписку.",
+            reply_markup=get_payment_keyboard_inline(user_id)
+        )
         return
     
     # Отправляем индикатор набора текста
-    context.bot.send_chat_action(chat_id=user_id, action=ChatAction.TYPING)
+    message.chat.send_action(action="typing")
     
-    try:
-        # Получаем историю диалога из базы данных
-        conversation_history = get_user_conversation_history(user_id, limit=5)
-        
-        # Получаем ответ от GPT
-        response = get_health_assistant_response(
-            user_id, 
-            user_message, 
-            conversation_history
-        )
-        
-        # Сохраняем сообщение пользователя и ответ в базе данных
-        save_message_to_history(user_id, "user", user_message)
-        save_message_to_history(user_id, "assistant", response)
-        
-        # Отправляем ответ пользователю
-        if update.callback_query:
-            update.callback_query.message.reply_text(
-                response,
-                reply_markup=ReplyKeyboardMarkup([["Назад"]], resize_keyboard=True)
-            )
-        else:
-            message.reply_text(
-                response,
-                reply_markup=ReplyKeyboardMarkup([["Назад"]], resize_keyboard=True)
-            )
-            
-        # Поддерживаем флаг активности для следующих сообщений
-        context.user_data['health_assistant_active'] = True
-        logger.info(f"[HEALTH] Отправлен ответ от Health ассистента пользователю {user_id}")
-    except Exception as e:
-        logger.error(f"Ошибка при обработке запроса к Health ассистенту: {e}")
-        
-        # Отправляем сообщение об ошибке
-        error_message = "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте позже."
-        
-        if update.callback_query:
-            update.callback_query.message.reply_text(
-                error_message,
-                reply_markup=ReplyKeyboardMarkup([["Назад"]], resize_keyboard=True)
-            )
-        else:
-            message.reply_text(
-                error_message,
-                reply_markup=ReplyKeyboardMarkup([["Назад"]], resize_keyboard=True)
-            )
-            
-    return
+    # Получаем историю диалога из базы данных
+    conversation_history = get_user_conversation_history(user_id, limit=5)
+    
+    # Получаем ответ от GPT
+    response = get_health_assistant_response(
+        user_id, 
+        user_message, 
+        conversation_history
+    )
+    
+    # Сохраняем сообщение пользователя и ответ в базе данных
+    save_message_to_history(user_id, "user", user_message)
+    save_message_to_history(user_id, "assistant", response)
+    
+    # Отправляем ответ пользователю
+    message.reply_text(response)
 
 # Обработчик кнопки "Назад" (не очищает историю, так как она сохраняется в базе данных)
 def back_to_main_menu(update: Update, context: CallbackContext):
@@ -665,11 +583,6 @@ def back_to_main_menu(update: Update, context: CallbackContext):
     
     # Определяем тип запроса (callback или обычное сообщение)
     is_callback = update.callback_query is not None
-    
-    # Сбрасываем флаг активности Health ассистента, если он установлен
-    if context.user_data.get('health_assistant_active'):
-        context.user_data['health_assistant_active'] = False
-        logger.info(f"Сброшен флаг health_assistant_active при возврате в меню для пользователя {user_id}")
     
     # Проверяем, заполнил ли пользователь анкету
     session = get_session()
@@ -772,48 +685,6 @@ def back_to_main_menu(update: Update, context: CallbackContext):
 def start(update: Update, context: CallbackContext) -> int:
     user_id = update.effective_user.id
     username = update.effective_user.username
-    
-    # Добавьте эту проверку в начало функции
-    # Если передан параметр /start, проверяем, может это код блогера
-    if context.args and (context.args[0].startswith('ref_') and len(context.args[0]) > 8):
-        from api_patch import track_referral_click  # Импортируем функцию для работы с блогерами
-        
-        logger.info(f"[REFERRAL] Возможный код блогера: {context.args[0]}")
-        success, result = track_referral_click(context.args[0], user_id, username)
-        
-        if success:
-            logger.info(f"[REFERRAL] Успешная обработка кода блогера: {result}")
-            # Пользователь может быть новым, создадим или обновим запись
-            session = get_session()
-            try:
-                user = session.query(User).filter(User.user_id == user_id).first()
-                if not user:
-                    user = User(
-                        user_id=user_id,
-                        username=username,
-                        registration_date=datetime.now(TIMEZONE),
-                        blogger_ref_code=context.args[0].replace('ref_', ''),
-                        referral_source='blogger'
-                    )
-                    session.add(user)
-                else:
-                    user.blogger_ref_code = context.args[0].replace('ref_', '')
-                    user.referral_source = 'blogger'
-                
-                session.commit()
-                logger.info(f"[REFERRAL] Сохранён код блогера для пользователя {user_id}")
-                
-                # Перейдем к показу приветственного видео
-                session.close()
-                send_welcome_video(update, context)
-                return ConversationHandler.END
-            except Exception as e:
-                session.rollback()
-                logger.error(f"[REFERRAL] Ошибка при сохранении кода блогера: {str(e)}")
-                session.close()
-    
-    # Продолжение существующего кода для обычных реферальных кодов...
-    
     chat_id = update.effective_chat.id
     
     # Проверяем наличие аргументов в команде /start
@@ -903,14 +774,7 @@ def start(update: Update, context: CallbackContext) -> int:
             # Если передан реферальный код, обрабатываем его
             if referral_code:
                 # Проверяем существование кода
-                ref_code = session.query(ReferralCode).filter(
-                    or_(
-                        ReferralCode.code == referral_code,  # Оригинальный код
-                        ReferralCode.code == referral_code.replace('ref_', ''),  # Без префикса
-                        ReferralCode.code == f"ref_{referral_code.replace('ref_', '')}"  # С префиксом
-                    ),
-                    ReferralCode.is_active == True
-                ).first()
+                ref_code = session.query(ReferralCode).filter(ReferralCode.code == referral_code, ReferralCode.is_active == True).first()
                 if ref_code and str(ref_code.user_id) != str(user_id):  # Проверяем по строке для корректного сравнения
                     logger.info(f"[REFERRAL] Найден активный реферальный код: {referral_code}, владелец: {ref_code.user_id}")
                     
@@ -1954,66 +1818,58 @@ def handle_menu_callback(update: Update, context: CallbackContext):
     # Обработка кнопки "Управление подпиской"
     elif callback_data == "subscription_management":
         # Получаем данные о подписке пользователя
-        try:
-            session = get_session()
-            user = session.query(User).filter(User.user_id == user_id).first()
+        session = get_session()
+        user = session.query(User).filter(User.user_id == user_id).first()
+        
+        if user:
+            is_subscribed = user.is_subscribed
+            subscription_type = user.subscription_type
+            subscription_expires = user.subscription_expires
             
-            if user:
-                is_subscribed = user.is_subscribed
-                subscription_type = user.subscription_type
-                subscription_expires = user.subscription_expires
+            if is_subscribed and subscription_expires:
+                # Форматируем дату окончания подписки
+                expires_date = subscription_expires.strftime("%d.%m.%Y")
+                remaining_days = (subscription_expires - datetime.now()).days
                 
-                if is_subscribed and subscription_expires:
-                    # Форматируем дату окончания подписки
-                    expires_date = subscription_expires.strftime("%d.%m.%Y")
-                    remaining_days = (subscription_expires - datetime.now()).days
-                    
-                    # Определяем тип подписки для отображения
-                    sub_type = "месячная" if subscription_type == "monthly" else "годовая"
-                    
-                    # Получаем username менеджера из конфигурации
-                    config = get_bot_config()
-                    manager_username = config.get("manager_username", "willway_manager")
-                    
-                    # Создаем клавиатуру для управления подпиской
-                    keyboard = [
-                        [InlineKeyboardButton("Продлить подписку", callback_data="renew_subscription")],
-                        [get_cancel_subscription_button()],
-                        [InlineKeyboardButton("Назад", callback_data="back_to_menu")]
-                    ]
-                    
-                    # Отправляем информацию о подписке
-                    query.edit_message_text(
-                        f"💎 *Информация о подписке*\n\n"
-                        f"• Тип: {sub_type}\n"
-                        f"• Активна до: {expires_date}\n"
-                        f"• Осталось дней: {remaining_days}\n\n"
-                        f"Для отмены подписки нажмите соответствующую кнопку ниже.",
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Если подписка не активна
-                    query.edit_message_text(
-                        "У вас нет активной подписки.\n\n"
-                        "Оформите подписку для доступа к Health ассистенту и другим функциям бота:",
-                        reply_markup=get_payment_keyboard_inline(user_id)
-                    )
-            else:
-                # Если данные о пользователе не найдены
+                # Определяем тип подписки для отображения
+                sub_type = "месячная" if subscription_type == "monthly" else "годовая"
+                
+                # Получаем username менеджера из конфигурации
+                config = get_bot_config()
+                manager_username = config.get("manager_username", "willway_manager")
+                
+                # Создаем клавиатуру для управления подпиской
+                keyboard = [
+                    [InlineKeyboardButton("Продлить подписку", callback_data="renew_subscription")],
+                    [InlineKeyboardButton("Отменить подписку", url=f"https://t.me/{manager_username}")],
+                    [InlineKeyboardButton("Назад", callback_data="back_to_menu")]
+                ]
+                
+                # Отправляем информацию о подписке
                 query.edit_message_text(
-                    "Не удалось получить информацию о вашей подписке. Пожалуйста, попробуйте позже.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]])
+                    f"💎 *Информация о подписке*\n\n"
+                    f"• Тип: {sub_type}\n"
+                    f"• Активна до: {expires_date}\n"
+                    f"• Осталось дней: {remaining_days}\n\n"
+                    f"Для отмены подписки, пожалуйста, свяжитесь с менеджером.",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-        except Exception as e:
-            logger.error(f"Ошибка при получении информации о подписке: {e}")
+            else:
+                # Если подписка не активна
+                query.edit_message_text(
+                    "У вас нет активной подписки.\n\n"
+                    "Оформите подписку для доступа к Health ассистенту и другим функциям бота:",
+                    reply_markup=get_payment_keyboard_inline(user_id)
+                )
+        else:
+            # Если данные о пользователе не найдены
             query.edit_message_text(
-                "Произошла ошибка при загрузке информации о подписке. Пожалуйста, попробуйте позже.",
+                "Не удалось получить информацию о вашей подписке. Пожалуйста, попробуйте позже.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]])
             )
-        finally:
-            if 'session' in locals() and session:
-                session.close()
+        
+        session.close()
         return
 
     # Обработка кнопки "Связь с поддержкой"
@@ -2056,46 +1912,16 @@ def handle_menu_callback(update: Update, context: CallbackContext):
                 code = ref_code.code
                 logger.info(f"[REFERRAL] Найден существующий реферальный код {code} для пользователя {user_id}")
             
-            # Получаем ID пользователя в базе данных
-            user_db = session.query(User).filter(User.user_id == user_id).first()
-            if not user_db:
-                logger.error(f"[REFERRAL_ERROR] Пользователь с ID {user_id} не найден в БД")
-                raise Exception("Пользователь не найден в базе данных")
-                
             # Получаем количество приглашенных друзей
-            total_invited = 0
-            paid_friends = 0
+            total_invited = session.query(ReferralUse).filter(
+                ReferralUse.referrer_id == user_id
+            ).count()
             
-            # Попытка 1: По полю referrer_id == user_id (telegram ID)
-            try:
-                total_invited = session.query(ReferralUse).filter(
-                    ReferralUse.referrer_id == user_id
-                ).count()
-                
-                paid_friends = session.query(ReferralUse).filter(
-                    ReferralUse.referrer_id == user_id,
-                    ReferralUse.subscription_purchased == True
-                ).count()
-                
-                logger.info(f"[REFERRAL] Статистика по Telegram ID: всего={total_invited}, с подпиской={paid_friends}")
-            except Exception as e:
-                logger.warning(f"[REFERRAL_WARNING] Ошибка при получении статистики по Telegram ID: {str(e)}")
-            
-            # Если не нашли по прямому ID, пробуем через ID в БД
-            if total_invited == 0:
-                try:
-                    total_invited = session.query(ReferralUse).filter(
-                        ReferralUse.referrer_id == user_db.id
-                    ).count()
-                    
-                    paid_friends = session.query(ReferralUse).filter(
-                        ReferralUse.referrer_id == user_db.id,
-                        ReferralUse.subscription_purchased == True
-                    ).count()
-                    
-                    logger.info(f"[REFERRAL] Статистика по ID в БД: всего={total_invited}, с подпиской={paid_friends}")
-                except Exception as e:
-                    logger.warning(f"[REFERRAL_WARNING] Ошибка при получении статистики по ID в БД: {str(e)}")
+            # Получаем количество друзей, оплативших подписку
+            paid_friends = session.query(ReferralUse).filter(
+                ReferralUse.referrer_id == user_id,
+                ReferralUse.subscription_purchased == True
+            ).count()
             
             # Получаем имя бота
             bot_username = os.environ.get('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')  # Получаем из переменной окружения
@@ -2108,20 +1934,19 @@ def handle_menu_callback(update: Update, context: CallbackContext):
             # Формируем реферальную ссылку
             referral_link = f"https://t.me/{bot_username}?start={code}"
             
-            # Получаем клавиатуру и ссылку
-            keyboard, referral_link = get_referral_keyboard(user_id, code)
-            
-            # Формируем простое сообщение без эмодзи и сложного форматирования, но с ссылкой
+            # Формируем сообщение
             message = (
-                "Приглашайте друзей и получайте бонусы!\n\n"
-                "За каждого друга, который оформит подписку, "
-                "вы получите +1 месяц к вашей текущей подписке.\n\n"
-                "Статистика:\n"
-                f"- Всего приглашено друзей: {total_invited}\n"
-                f"- Друзей с подпиской: {paid_friends}\n"
-                f"- Бонусных месяцев получено: {paid_friends}\n\n"
-                f"Ваша реферальная ссылка: {referral_link}\n\n"
-                f"Ваш реферальный код: {code}"
+                f"🎁 *Приглашайте друзей и получайте бонусы!*\n\n"
+                f"За каждого друга, который перейдет по вашей ссылке и оформит подписку, "
+                f"вы получите +1 месяц к вашей текущей подписке.\n\n"
+                f"📊 *Ваша статистика:*\n"
+                f"• Всего приглашено друзей: {total_invited}\n"
+                f"• Друзей с подпиской: {paid_friends}\n"
+                f"• Бонусных месяцев получено: {paid_friends}\n\n"
+                f"🔗 *Ваша реферальная ссылка:*\n"
+                f"{referral_link}\n\n"
+                f"Или поделитесь с другом вашим промо-кодом:\n"
+                f"{code}"
             )
             
             # Создаем клавиатуру
@@ -2133,6 +1958,7 @@ def handle_menu_callback(update: Update, context: CallbackContext):
             context.bot.send_message(
                 chat_id=user_id,
                 text=message,
+                parse_mode=ParseMode.MARKDOWN,
                 reply_markup=keyboard
             )
             
@@ -2226,6 +2052,7 @@ def handle_menu_callback(update: Update, context: CallbackContext):
             
             query.edit_message_text(
                 message,
+                parse_mode=ParseMode.MARKDOWN,
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="invite_friend")]])
             )
         except Exception as e:
@@ -2763,10 +2590,6 @@ def main():
         setup_subscription_doubt_handlers(dispatcher)
         logger.info("Зарегистрированы обработчики для схемы сомнений при выборе подписки")
         
-        # Добавляем обработчики для схемы отмены подписки
-        setup_subscription_cancel_handlers(dispatcher)
-        logger.info("Зарегистрированы обработчики для схемы отмены подписки")
-        
         # Обработчик для кнопки "Варианты WILLWAY подписки"
         dispatcher.add_handler(CallbackQueryHandler(handle_show_subscription_options, pattern='^show_subscription_options$'))
         
@@ -2821,21 +2644,8 @@ def is_admin(user_id):
     """Проверяет, является ли пользователь администратором"""
     session = get_session()
     try:
-        # В модели AdminUser нет поля user_id, поэтому используем другой подход
-        # Проверяем, есть ли пользователь в специальном списке администраторов
-        admin_usernames = ['admin', 'superadmin']  # Можно расширить список
-        
-        # Получаем пользователя из базы данных
-        user = session.query(User).filter(User.user_id == user_id).first()
-        if user and user.username and user.username in admin_usernames:
-            return True
-            
-        # Дополнительная проверка для списка известных ID администраторов
-        admin_ids = ['123456789', '987654321']  # Здесь нужно указать реальные ID администраторов
-        if str(user_id) in admin_ids:
-            return True
-            
-        return False
+        admin = session.query(AdminUser).filter(AdminUser.user_id == user_id).first()
+        return admin is not None
     except Exception as e:
         logger.error(f"Ошибка при проверке статуса администратора: {str(e)}")
         return False
@@ -2987,123 +2797,130 @@ def cancel(update: Update, context: CallbackContext) -> int:
     update.message.reply_text('Регистрация отменена.')
     return ConversationHandler.END
 
-def handle_text_messages(update: Update, context: CallbackContext):
-    """Обработка текстовых сообщений от кнопок главного меню и обычных сообщений."""
-    # Получаем данные пользователя
-    message = update.message
-    text = message.text
-    user_id = message.from_user.id
+# Обработчик для текстовых сообщений кнопок в главном меню
+def handle_text_messages(update, context):
+    """Обрабатывает текстовые сообщения из основного меню."""
+    text = update.message.text
+    user_id = update.effective_user.id
+    logger.info(f"[TEXT_MESSAGE] Получено текстовое сообщение от пользователя {user_id}: {text}")
     
-    # Обрабатываем кнопку "Назад" отдельно, независимо от контекста
-    if text == "Назад":
-        logger.info(f"Пользователь {user_id} нажал кнопку 'Назад', возвращаемся в главное меню")
-        return back_to_main_menu(update, context)
-    
-    # Проверяем, находится ли пользователь в процессе отмены подписки
-    if 'cancellation' in context.user_data:
-        logger.info(f"Перенаправление сообщения пользователя {user_id} в обработчик отмены подписки: {text}")
-        return False  # Пропускаем этот обработчик, позволяя обработчику отмены подписки обработать сообщение
-    
-    # Обработка команды reload для администратора
-    if text == "/reload" or text == "reload":
-        if is_admin(user_id):
-            return reload_config(update, context)
-        return
-    
-    # Если активен Health ассистент, передаем сообщение для обработки
-    if context.user_data.get('health_assistant_active'):
-        logger.info(f"Обработка сообщения для Health ассистента от пользователя {user_id}: {text}")
-        forward_to_health_assistant(update, context)
-        return
-    
-    # Обработка кнопки "Health ассистент"
-    if text == "Health ассистент":
-        logger.info(f"Пользователь {user_id} нажал кнопку 'Health ассистент'")
-        return health_assistant_button(update, context)
-    
-    # Обработка кнопки "Управление подпиской"
-    if text == "Управление подпиской":
-        logger.info(f"Пользователь {user_id} нажал кнопку 'Управление подпиской'")
-        try:
-            session = get_session()
-            user_db = session.query(User).filter(User.user_id == user_id).first()
+    # Сначала проверяем, заполнил ли пользователь анкету
+    session = get_session()
+    try:
+        user = session.query(User).filter(User.user_id == user_id).first()
+        
+        # Проверяем флаг регистрации, если он существует
+        if user and hasattr(user, 'registered') and not user.registered:
+            logger.info(f"[SURVEY_REQUIRED] Пользователь {user_id} пытается использовать меню без заполнения анкеты")
             
-            if user_db:
-                is_subscribed = user_db.is_subscribed
-                subscription_type = user_db.subscription_type
-                subscription_expires = user_db.subscription_expires
-                
-                if is_subscribed and subscription_expires:
-                    # Форматируем дату окончания подписки
-                    expires_date = subscription_expires.strftime("%d.%m.%Y")
-                    remaining_days = (subscription_expires - datetime.now()).days
-                    
-                    # Определяем тип подписки для отображения
-                    sub_type = "месячная" if subscription_type == "monthly" else "годовая"
-                    
-                    # Получаем username менеджера из конфигурации
-                    config = get_bot_config()
-                    manager_username = config.get("manager_username", "willway_manager")
-                    
-                    # Создаем клавиатуру для управления подпиской
-                    keyboard = [
-                        [InlineKeyboardButton("Продлить подписку", callback_data="renew_subscription")],
-                        [get_cancel_subscription_button()],
-                        [InlineKeyboardButton("Назад", callback_data="back_to_menu")]
-                    ]
-                    
-                    # Отправляем информацию о подписке
-                    update.message.reply_text(
-                        f"💎 *Информация о подписке*\n\n"
-                        f"• Тип: {sub_type}\n"
-                        f"• Активна до: {expires_date}\n"
-                        f"• Осталось дней: {remaining_days}\n\n"
-                        f"Для отмены подписки нажмите соответствующую кнопку ниже.",
-                        parse_mode=ParseMode.MARKDOWN,
-                        reply_markup=InlineKeyboardMarkup(keyboard)
-                    )
-                else:
-                    # Если подписка не активна
-                    update.message.reply_text(
-                        "У вас нет активной подписки.\n\n"
-                        "Оформите подписку для доступа к Health ассистенту и другим функциям бота:",
-                        reply_markup=get_payment_keyboard_inline(user_id)
-                    )
-            else:
-                # Если данные о пользователе не найдены
-                update.message.reply_text(
-                    "Не удалось получить информацию о вашей подписке. Пожалуйста, попробуйте позже.",
-                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]])
-                )
-        except Exception as e:
-            logger.error(f"Ошибка при получении информации о подписке: {e}")
+            # Предлагаем заполнить анкету
+            keyboard = [
+                [InlineKeyboardButton("Подобрать персональную программу", callback_data="start_survey")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             update.message.reply_text(
-                "Произошла ошибка при загрузке информации о подписке. Пожалуйста, попробуйте позже.",
+                "Для получения доступа к функциям бота, пожалуйста, заполните анкету:",
+                reply_markup=reply_markup
+            )
+            
+            session.close()
+            return ConversationHandler.END
+        
+        session.close()
+    except Exception as e:
+        logger.error(f"[SURVEY_CHECK_ERROR] Ошибка при проверке статуса анкеты: {e}")
+        if 'session' in locals() and session:
+            session.close()
+    
+    # Если анкета заполнена, продолжаем обычную обработку
+    # Проверяем наличие специальных команд
+    if text == "Health ассистент":
+        return health_assistant_button(update, context)
+    elif text == "Управление подпиской":
+        # Получаем данные о подписке пользователя
+        session = get_session()
+        user = session.query(User).filter(User.user_id == user_id).first()
+        
+        if user:
+            is_subscribed = user.is_subscribed
+            subscription_type = user.subscription_type
+            subscription_expires = user.subscription_expires
+            
+            if is_subscribed and subscription_expires:
+                # Форматируем дату окончания подписки
+                expires_date = subscription_expires.strftime("%d.%m.%Y")
+                remaining_days = (subscription_expires - datetime.now()).days
+                
+                # Определяем тип подписки для отображения
+                sub_type = "месячная" if subscription_type == "monthly" else "годовая"
+                
+                # Получаем username менеджера из конфигурации
+                config = get_bot_config()
+                manager_username = config.get("manager_username", "willway_manager")
+                
+                # Отправляем информацию о подписке
+                message = (
+                    f"💎 *Информация о подписке*\n\n"
+                    f"• Тип: {sub_type}\n"
+                    f"• Активна до: {expires_date}\n"
+                    f"• Осталось дней: {remaining_days}\n\n"
+                    f"Для отмены подписки, пожалуйста, свяжитесь с менеджером."
+                )
+                
+                # Создаем клавиатуру для управления подпиской
+                keyboard = [
+                    [InlineKeyboardButton("Продлить подписку", callback_data="renew_subscription")],
+                    [InlineKeyboardButton("Отменить подписку", url=f"https://t.me/{manager_username}")],
+                    [InlineKeyboardButton("Назад", callback_data="back_to_menu")]
+                ]
+                
+                update.message.reply_text(
+                    message,
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            else:
+                # Если подписка не активна
+                update.message.reply_text(
+                    "У вас нет активной подписки.\n\n"
+                    "Оформите подписку для доступа к Health ассистенту и другим функциям бота:",
+                    reply_markup=get_payment_keyboard_inline(user_id)
+                )
+        else:
+            # Если данные о пользователе не найдены
+            update.message.reply_text(
+                "Не удалось получить информацию о вашей подписке. Пожалуйста, попробуйте позже.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]])
             )
-        finally:
-            if 'session' in locals() and session:
-                session.close()
+        
+        session.close()
         return
-    
-    # Обработка кнопки "Связь с поддержкой"
-    if text == "Связь с поддержкой":
-        logger.info(f"Пользователь {user_id} нажал кнопку 'Связь с поддержкой'")
+    elif text == "Связь с поддержкой":
+        # Показываем кнопки для связи с менеджером и тренером
         update.message.reply_text(
             "Выберите с кем хотите связаться:",
             reply_markup=support_keyboard()
         )
         return
-    
-    # Обработка кнопки "Пригласить друга"
-    if text == "Пригласить друга":
-        logger.info(f"Пользователь {user_id} нажал кнопку 'Пригласить друга'")
+    elif text == "Пригласить друга":
         # Получаем реферальный код пользователя из БД и показываем полную информацию
         session = get_session()
         try:
+            # Сначала получаем пользователя из базы по telegram ID
+            user_db = session.query(User).filter(User.user_id == user_id).first()
+            if not user_db:
+                logger.error(f"[REFERRAL_ERROR] Пользователь с ID {user_id} не найден в базе данных")
+                context.bot.send_message(
+                    chat_id=user_id,
+                    text="Произошла ошибка при получении вашей реферальной ссылки. Попробуйте позже."
+                )
+                session.close()
+                return
+                
             # Проверяем, есть ли у пользователя реферальный код
             ref_code = session.query(ReferralCode).filter(
-                ReferralCode.user_id == user_id, 
+                ReferralCode.user_id == user_db.id, 
                 ReferralCode.is_active == True
             ).first()
             
@@ -3114,7 +2931,7 @@ def handle_text_messages(update: Update, context: CallbackContext):
                 new_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
                 
                 ref_code = ReferralCode(
-                    user_id=user_id,
+                    user_id=user_db.id,
                     code=new_code,
                     is_active=True
                 )
@@ -3127,131 +2944,74 @@ def handle_text_messages(update: Update, context: CallbackContext):
                 code = ref_code.code
                 logger.info(f"[REFERRAL] Найден существующий реферальный код {code} для пользователя {user_id}")
             
-            # Получаем ID пользователя в базе данных
-            user_db = session.query(User).filter(User.user_id == user_id).first()
-            if not user_db:
-                logger.error(f"[REFERRAL_ERROR] Пользователь с ID {user_id} не найден в БД")
-                raise Exception("Пользователь не найден в базе данных")
-                
-            # Получаем количество приглашенных друзей
-            total_invited = 0
-            paid_friends = 0
-            
-            # Попытка 1: По полю referrer_id == user_id (telegram ID)
             try:
+                # Получаем количество приглашенных друзей
                 total_invited = session.query(ReferralUse).filter(
-                    ReferralUse.referrer_id == user_id
+                    ReferralUse.referrer_id == user_db.id
                 ).count()
                 
+                # Получаем количество друзей, купивших подписку
                 paid_friends = session.query(ReferralUse).filter(
-                    ReferralUse.referrer_id == user_id,
+                    ReferralUse.referrer_id == user_db.id,
                     ReferralUse.subscription_purchased == True
                 ).count()
-                
-                logger.info(f"[REFERRAL] Статистика по Telegram ID: всего={total_invited}, с подпиской={paid_friends}")
             except Exception as e:
-                logger.warning(f"[REFERRAL_WARNING] Ошибка при получении статистики по Telegram ID: {str(e)}")
+                logger.error(f"[REFERRAL_ERROR] Ошибка при подсчете статистики: {str(e)}")
+                total_invited = 0
+                paid_friends = 0
             
-            # Если не нашли по прямому ID, пробуем через ID в БД
-            if total_invited == 0:
-                try:
-                    total_invited = session.query(ReferralUse).filter(
-                        ReferralUse.referrer_id == user_db.id
-                    ).count()
-                    
-                    paid_friends = session.query(ReferralUse).filter(
-                        ReferralUse.referrer_id == user_db.id,
-                        ReferralUse.subscription_purchased == True
-                    ).count()
-                    
-                    logger.info(f"[REFERRAL] Статистика по ID в БД: всего={total_invited}, с подпиской={paid_friends}")
-                except Exception as e:
-                    logger.warning(f"[REFERRAL_WARNING] Ошибка при получении статистики по ID в БД: {str(e)}")
-            
-            # Получаем имя бота
-            bot_username = os.environ.get('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')  # Получаем из переменной окружения
-            try:
-                bot_info = context.bot.get_me()
-                bot_username = bot_info.username
-            except:
-                logger.error("Не удалось получить username бота")
-            
-            # Формируем реферальную ссылку
-            referral_link = f"https://t.me/{bot_username}?start={code}"
-            
-            # Получаем клавиатуру и ссылку
             keyboard, referral_link = get_referral_keyboard(user_id, code)
             
-            # Формируем простое сообщение без эмодзи и сложного форматирования, но с ссылкой
             message = (
-                "Приглашайте друзей и получайте бонусы!\n\n"
-                "За каждого друга, который оформит подписку, "
-                "вы получите +1 месяц к вашей текущей подписке.\n\n"
-                "Статистика:\n"
-                f"- Всего приглашено друзей: {total_invited}\n"
-                f"- Друзей с подпиской: {paid_friends}\n"
-                f"- Бонусных месяцев получено: {paid_friends}\n\n"
-                f"Ваша реферальная ссылка: {referral_link}\n\n"
-                f"Ваш реферальный код: {code}"
+                f"🎁 *Приглашайте друзей и получайте бонусы!*\n\n"
+                f"За каждого друга, который перейдет по вашей ссылке и оформит подписку, "
+                f"вы получите +1 месяц к вашей текущей подписке.\n\n"
+                f"📊 *Ваша статистика:*\n"
+                f"• Всего приглашено друзей: {total_invited}\n"
+                f"• Друзей с подпиской: {paid_friends}\n"
+                f"• Бонусных месяцев получено: {paid_friends}\n\n"
+                f"🔗 *Ваша реферальная ссылка:*\n"
+                f"`{referral_link}`\n\n"
+                f"Или поделитесь с другом вашим промо-кодом:\n"
+                f"`{code}`"
             )
             
-            # Создаем клавиатуру
-            keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton("Назад", callback_data="back_to_menu")]
-            ])
-            
-            # Отправляем сообщение
+            # Отправляем сообщение через context.bot.send_message
             context.bot.send_message(
                 chat_id=user_id,
                 text=message,
+                parse_mode=ParseMode.MARKDOWN,
                 reply_markup=keyboard
             )
             
         except Exception as e:
             logger.error(f"[REFERRAL_ERROR] Ошибка при обработке приглашения друга: {str(e)}")
-            update.message.reply_text(
+            context.bot.send_message(
+                chat_id=user_id,
                 text="Произошла ошибка при получении вашей реферальной ссылки. Пожалуйста, попробуйте позже.",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]])
             )
         finally:
             session.close()
-        return
-        
-    # Проверяем активную подписку пользователя
-    session = get_session()
-    try:
-        user_db = session.query(User).filter(User.user_id == user_id).first()
-        
-        if not user_db or not user_db.is_subscribed:
-            logger.info(f"Пользователь {user_id} пытается использовать Health ассистента без подписки")
-            
-            # Если нет подписки, показываем сообщение о необходимости подписки
-            if context.user_data.get('health_assistant_active'):
-                # Сбрасываем флаг активности Health ассистента
-                context.user_data['health_assistant_active'] = False
-                
-                update.message.reply_text(
-                    "Для использования Health ассистента необходима активная подписка.\n\n"
-                    "Оформите подписку, чтобы получить доступ:",
-                    reply_markup=get_payment_keyboard_inline(user_id)
-                )
-            return
-    except Exception as e:
-        logger.error(f"Ошибка при проверке подписки для Health ассистента: {e}")
-    finally:
-        session.close()
-    
-    # Если ни один из обработчиков не сработал, выводим главное меню
-    logger.info(f"Неизвестное сообщение от пользователя {user_id}, возвращаем главное меню")
-    show_menu(update, context)
+    elif text == "Подобрать персональную программу":
+        logger.info(f"[SURVEY_START] Пользователь {user_id} выбрал 'Подобрать персональную программу'")
+        return start_survey(update, context)
+    else:
+        # Перенаправляем на обработчик Health ассистента
+        return handle_health_assistant_message(update, context)
 
+# Добавляем функцию для отмены напоминания о незавершенной подписке
 def cancel_payment_reminder(context, user_id):
+    """Отменяет напоминание о незавершенной подписке."""
+    # Удаляем задачу напоминания, если она была запланирована
     jobs = context.job_queue.get_jobs_by_name(f"payment_reminder_{user_id}")
     for job in jobs:
         job.schedule_removal()
         logger.info(f"Напоминание о подписке для пользователя {user_id} отменено")
 
+# Функция для отправки приветственных сообщений после подписки
 def send_welcome_subscription_messages(context, user_id):
+    """Отправляет приветственное сообщение после успешной активации подписки"""
     logger.info(f"[SUBSCRIPTION_WELCOME] Отправка приветственного сообщения пользователю {user_id}")
     
     try:
@@ -3262,9 +3022,11 @@ def send_welcome_subscription_messages(context, user_id):
             logger.error(f"[SUBSCRIPTION_WELCOME] Пользователь {user_id} не найден в базе данных")
             return
         
+        # Получаем настройки бота для ссылки на канал
         config = get_bot_config()
         channel_url = config.get("channel_url", "https://t.me/willway_channel")
         
+        # Красивое welcome сообщение
         welcome_text = (
             "Добро пожаловать в WILLWAY!\n\n"
             "Я твой персональный помощник. Я помогу тебе достичь твоих целей "
@@ -3659,12 +3421,12 @@ def help_command(update: Update, context: CallbackContext):
 __all__ = ['get_bot_config']
 
 def get_referral_keyboard(user_id, ref_code):
-    """Генерирует клавиатуру для реферальной программы и ссылку"""
+    """Генерирует клавиатуру и реферальную ссылку"""
     # Получаем имя бота из переменной окружения
     bot_username = os.environ.get('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')
     referral_link = f"https://t.me/{bot_username}?start={ref_code}"
     
-    # Создаем простую клавиатуру только с кнопкой Назад
+    # Создаем клавиатуру
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("Назад", callback_data="back_to_menu")]
     ])
@@ -3672,64 +3434,354 @@ def get_referral_keyboard(user_id, ref_code):
     return keyboard, referral_link
 
 def invite_friend(update: Update, context: CallbackContext):
-    """Максимально простая заглушка"""
-    user_id = update.effective_user.id
-    
-    # Определяем тип запроса
-    if update.callback_query:
-        query = update.callback_query
-        query.answer()
-        message_sender = query.edit_message_text
-    else:
-        query = None
-        message_sender = lambda text, reply_markup: context.bot.send_message(
-            chat_id=user_id, text=text, reply_markup=reply_markup)
-    
-    # Создаем очень простое сообщение
-    message = "Ваш реферальный код: 3ROCO71M"
-    
-    # Простая клавиатура
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]])
-    
-    # Отправляем сообщение
-    try:
-        message_sender(message, reply_markup=keyboard)
-    except Exception as e:
-        logger.error(f"[REFERRAL_ERROR] Ошибка: {str(e)}")
-        # В случае ошибки пробуем отправить новое сообщение
-        if query:
-            context.bot.send_message(
-                chat_id=user_id,
-                text="Произошла ошибка. Повторите позже.",
-                reply_markup=keyboard
-            )
-        else:
-            # Если это уже было обычное сообщение, то просто логируем ошибку
-            pass
-
-def handle_copy_ref_link(update: Update, context: CallbackContext):
-    """Максимально простая заглушка"""
-    query = update.callback_query
-    query.answer("Код скопирован!")
-    
-    # Простой хак - просто отправить новое сообщение вместо редактирования текущего
-    context.bot.send_message(
-        chat_id=update.effective_user.id,
-        text="Ваш реферальный код: 3ROCO71M",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]])
-    )
-
-def show_referral_stats(update: Update, context: CallbackContext):
-    """Максимально простая заглушка"""
     query = update.callback_query
     query.answer()
     
-    # Используем тот же примитивный подход
-    context.bot.send_message(
-        chat_id=update.effective_user.id,
-        text="Ваш реферальный код: 3ROCO71M",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]])
-    )
+    user_id = update.effective_user.id
+    
+    session = get_session()
+    try:
+        # Сначала получаем пользователя из БД по telegram ID
+        user_db = session.query(User).filter(User.user_id == user_id).first()
+        if not user_db:
+            logger.error(f"[REFERRAL_ERROR] Пользователь с ID {user_id} не найден в базе данных")
+            query.edit_message_text(
+                "Произошла ошибка при получении вашей реферальной ссылки. Пожалуйста, попробуйте позже.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]])
+            )
+            session.close()
+            return
+            
+        # Проверяем, есть ли у пользователя реферальный код
+        try:
+            # Пробуем найти по is_active
+            ref_code = session.query(ReferralCode).filter(
+                ReferralCode.user_id == user_db.id, 
+                ReferralCode.is_active == True
+            ).first()
+        except Exception as e:
+            logger.warning(f"[REFERRAL_WARNING] Ошибка при поиске по is_active: {str(e)}")
+            try:
+                # Пробуем найти по active
+                ref_code = session.query(ReferralCode).filter(
+                    ReferralCode.user_id == user_db.id, 
+                    ReferralCode.active == True
+                ).first()
+            except Exception as e2:
+                logger.warning(f"[REFERRAL_WARNING] Ошибка при поиске по active: {str(e2)}")
+                # Если и так не получилось, берем любой код
+                ref_code = session.query(ReferralCode).filter(
+                    ReferralCode.user_id == user_db.id
+        ).first()
+        
+        if not ref_code:
+            # Если кода нет, генерируем новый
+            import random
+            import string
+            new_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+            
+            logger.info(f"[REFERRAL] Создаем новый реферальный код {new_code} для пользователя {user_id}")
+            
+            # Пробуем создать код с учетом разных возможных имен полей
+            try:
+                ref_code = ReferralCode(
+                    user_id=user_db.id,
+                    code=new_code,
+                    is_active=True
+                )
+            except Exception as e_field:
+                logger.warning(f"[REFERRAL_WARNING] Ошибка при создании кода с is_active: {str(e_field)}")
+                try:
+                    ref_code = ReferralCode(
+                        user_id=user_db.id,
+                        code=new_code,
+                        active=True
+                    )
+                except Exception as e_field2:
+                    logger.warning(f"[REFERRAL_WARNING] Ошибка при создании кода с active: {str(e_field2)}")
+                    ref_code = ReferralCode(
+                        user_id=user_db.id,
+                        code=new_code
+                    )
+            
+            session.add(ref_code)
+            session.commit()
+            
+            code = new_code
+            logger.info(f"[REFERRAL] Создан новый реферальный код {code} для пользователя {user_id}")
+        else:
+            code = ref_code.code
+            logger.info(f"[REFERRAL] Найден существующий реферальный код {code} для пользователя {user_id}")
+        
+        # Определяем количество приглашенных и оплативших
+        total_invited = 0
+        paid_friends = 0
+        
+        try:
+            # Пробуем через отношения в модели User
+            if hasattr(user_db, 'referred_users'):
+                total_invited = len(user_db.referred_users)
+                paid_friends = sum(1 for ref_use in user_db.referred_users if ref_use.subscription_purchased)
+                logger.info(f"[REFERRAL] Статистика через отношения: всего={total_invited}, с подпиской={paid_friends}")
+        except Exception as e:
+            logger.error(f"[REFERRAL_ERROR] Ошибка при получении статистики через отношения: {str(e)}")
+        
+        # Если через отношения не получилось, пробуем через запрос
+        if total_invited == 0:
+            try:
+                # Получаем количество приглашенных друзей
+                total_invited = session.query(ReferralUse).filter(
+                    ReferralUse.referrer_id == user_db.id
+                ).count()
+                
+                # Получаем количество друзей, купивших подписку
+                paid_friends = session.query(ReferralUse).filter(
+                    ReferralUse.referrer_id == user_db.id,
+                    ReferralUse.subscription_purchased == True
+                ).count()
+                
+                logger.info(f"[REFERRAL] Статистика через запрос: всего={total_invited}, с подпиской={paid_friends}")
+            except Exception as e:
+                logger.error(f"[REFERRAL_ERROR] Ошибка при подсчете статистики: {str(e)}")
+                total_invited = 0
+                paid_friends = 0
+        
+        keyboard, referral_link = get_referral_keyboard(user_id, code)
+        
+        message = (
+            f"🎁 *Приглашайте друзей и получайте бонусы!*\n\n"
+            f"За каждого друга, который перейдет по вашей ссылке и оформит подписку, "
+            f"вы получите +1 месяц к вашей текущей подписке.\n\n"
+            f"📊 *Ваша статистика:*\n"
+            f"• Всего приглашено друзей: {total_invited}\n"
+            f"• Друзей с подпиской: {paid_friends}\n"
+            f"• Бонусных месяцев получено: {paid_friends}\n\n"
+            f"🔗 *Ваша реферальная ссылка:*\n"
+            f"`{referral_link}`\n\n"
+        )
+        
+        try:
+            query.edit_message_text(
+                text=message,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=keyboard
+            )
+        except Exception as e:
+            logger.error(f"[REFERRAL_ERROR] Ошибка при обновлении сообщения: {str(e)}")
+            # Если произошла ошибка при редактировании, отправляем новое сообщение
+            context.bot.send_message(
+                chat_id=user_id,
+                text=message,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=keyboard
+            )
+        
+    except Exception as e:
+        logger.error(f"[REFERRAL_ERROR] Ошибка при обработке приглашения друга: {str(e)}")
+        try:
+            query.edit_message_text(
+                "Произошла ошибка при получении вашей реферальной ссылки. Пожалуйста, попробуйте позже.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]])
+            )
+        except:
+            context.bot.send_message(
+                chat_id=user_id,
+                text="Произошла ошибка при получении вашей реферальной ссылки. Пожалуйста, попробуйте позже.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]])
+            )
+    finally:
+        session.close()
+
+def handle_copy_ref_link(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer("Ссылка скопирована в буфер обмена!")
+    
+    callback_data = query.data
+    ref_code = callback_data.replace("copy_ref_link_", "")
+    
+    user_id = update.effective_user.id
+    
+    try:
+        # Получаем реферальную ссылку
+        _, referral_link = get_referral_keyboard(user_id, ref_code)
+        
+        # Отправляем ссылку в отдельном сообщении для удобного копирования
+        context.bot.send_message(
+            chat_id=user_id,
+            text=f"{referral_link}",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("Вернуться к реферальной программе", callback_data="invite_friend")
+            ]])
+        )
+    except Exception as e:
+        logger.error(f"[REFERRAL_ERROR] Ошибка при копировании реферальной ссылки: {str(e)}")
+        query.edit_message_text(
+            "Произошла ошибка при копировании ссылки. Пожалуйста, попробуйте позже.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="invite_friend")]])
+        )
+
+def show_referral_stats(update: Update, context: CallbackContext):
+    query = update.callback_query
+    query.answer()
+    
+    user_id = update.effective_user.id
+    
+    session = get_session()
+    try:
+        # Сначала получаем пользователя из БД по telegram ID
+        user_db = session.query(User).filter(User.user_id == user_id).first()
+        if not user_db:
+            logger.error(f"[REFERRAL_ERROR] Пользователь с ID {user_id} не найден в базе данных")
+            query.edit_message_text(
+                "Произошла ошибка при получении статистики приглашений. Пожалуйста, попробуйте позже.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="invite_friend")]])
+            )
+            session.close()
+            return
+        
+        # Получаем список пользователей, которые указали текущего пользователя как реферера
+        referrals = []
+        total_invited = 0
+        paid_friends = 0
+        
+        try:
+            # Метод 1: Через отношения в модели User - проверяем referred_users
+            if hasattr(user_db, 'referred_users') and user_db.referred_users:
+                logger.info(f"[REFERRAL] Получение рефералов через отношение referred_users для {user_id}")
+                referrals = [(ref_use, ref_use.user) for ref_use in user_db.referred_users if ref_use.user]
+                logger.info(f"[REFERRAL] Найдено {len(referrals)} рефералов через отношение")
+        except Exception as e:
+            logger.error(f"[REFERRAL_ERROR] Ошибка при получении рефералов через отношения: {str(e)}")
+        
+        # Если не нашли через отношения, пробуем запросы
+        if not referrals:
+            try:
+                # Метод 2: Прямой запрос к таблице referral_uses
+                logger.info(f"[REFERRAL] Поиск рефералов через JOIN для пользователя {user_id} (ID={user_db.id})")
+                referrals_query = session.query(ReferralUse, User).join(
+                    User, ReferralUse.user_id == User.id
+        ).filter(
+                    ReferralUse.referrer_id == user_db.id
+        ).all()
+        
+                if referrals_query:
+                    logger.info(f"[REFERRAL] Найдено {len(referrals_query)} рефералов через JOIN")
+                    referrals = referrals_query
+            except Exception as e:
+                logger.error(f"[REFERRAL_ERROR] Ошибка при поиске через JOIN: {str(e)}")
+        
+        # Если и это не сработало, пробуем просто посчитать количество через COUNT
+        if not referrals:
+            try:
+                logger.info(f"[REFERRAL] Подсчет рефералов через COUNT для пользователя {user_id} (ID={user_db.id})")
+                total_invited = session.query(ReferralUse).filter(
+                    ReferralUse.referrer_id == user_db.id
+                ).count()
+                
+                paid_friends = session.query(ReferralUse).filter(
+                    ReferralUse.referrer_id == user_db.id,
+                    ReferralUse.subscription_purchased == True
+                ).count()
+                
+                logger.info(f"[REFERRAL] Через COUNT найдено: всего={total_invited}, с подпиской={paid_friends}")
+                
+                # Если нашли хотя бы через COUNT, формируем сообщение со статистикой
+                if total_invited > 0 or paid_friends > 0:
+                    message = (
+                        "📊 *Статистика ваших приглашений:*\n\n"
+                        f"*Всего приглашено:* {total_invited}\n"
+                        f"*С подпиской:* {paid_friends}\n"
+                        f"*Бонусных месяцев получено:* {paid_friends}"
+                    )
+                    
+                    query.edit_message_text(
+                        message,
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="invite_friend")]])
+                    )
+                    session.close()
+                    return
+            except Exception as e:
+                logger.error(f"[REFERRAL_ERROR] Ошибка при подсчете статистики: {str(e)}")
+        
+        # Если ни один из методов не сработал - показываем сообщение, что нет рефералов
+        if not referrals and total_invited == 0:
+            logger.info(f"[REFERRAL] У пользователя {user_id} нет рефералов")
+            query.edit_message_text(
+                "У вас пока нет приглашенных друзей. Поделитесь своей реферальной ссылкой с друзьями, чтобы получать бонусы!",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="invite_friend")]])
+            )
+            session.close()
+            return
+        
+        # Если есть детальная информация о рефералах, формируем расширенное сообщение
+        if referrals:
+            message = "📊 *Статистика ваших приглашений:*\n\n"
+            
+            for i, (ref_use, user) in enumerate(referrals, 1):
+                username = user.username or f"Пользователь_{user.id}"
+                status = "✅ Оформил подписку" if ref_use.subscription_purchased else "❌ Без подписки"
+                
+                # Обрабатываем разные варианты атрибутов даты
+                date_attr = 'created_at' if hasattr(ref_use, 'created_at') else 'used_at'
+                date = getattr(ref_use, date_attr).strftime("%d.%m.%Y") if hasattr(ref_use, date_attr) and getattr(ref_use, date_attr) else "Неизвестно"
+            
+                message += f"{i}. *{username}* - {status}\n"
+                message += f"   Дата регистрации: {date}\n"
+                
+                if ref_use.subscription_purchased and hasattr(ref_use, 'purchase_date') and ref_use.purchase_date:
+                    purchase_date = ref_use.purchase_date.strftime("%d.%m.%Y")
+                    message += f"   Дата оплаты: {purchase_date}\n"
+                
+                message += "\n"
+            
+            # Подсчитываем статистику
+            total_invited = len(referrals)
+            paid_friends = sum(1 for ref, _ in referrals if ref.subscription_purchased)
+            
+            message += f"*Всего приглашено:* {total_invited}\n"
+            message += f"*С подпиской:* {paid_friends}\n"
+            message += f"*Бонусных месяцев получено:* {paid_friends}"
+            
+            query.edit_message_text(
+                message,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="invite_friend")]])
+            )
+        else:
+            # Если тут оказались, значит были проблемы с выводом детализации,
+            # но у нас есть общая статистика из COUNT
+            message = (
+                "📊 *Статистика ваших приглашений:*\n\n"
+                f"*Всего приглашено:* {total_invited}\n"
+                f"*С подпиской:* {paid_friends}\n"
+                f"*Бонусных месяцев получено:* {paid_friends}"
+            )
+            
+            query.edit_message_text(
+                message,
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="invite_friend")]])
+            )
+    except Exception as e:
+        logger.error(f"[REFERRAL_ERROR] Общая ошибка при отображении статистики рефералов: {str(e)}")
+        try:
+            query.edit_message_text(
+                "Произошла ошибка при получении статистики приглашений. Пожалуйста, попробуйте позже.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="invite_friend")]])
+            )
+        except Exception as msg_error:
+            logger.error(f"[REFERRAL_ERROR] Не удалось отправить сообщение об ошибке: {str(msg_error)}")
+            try:
+                context.bot.send_message(
+                    chat_id=user_id,
+                    text="Произошла ошибка при получении статистики приглашений. Пожалуйста, попробуйте позже.",
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="invite_friend")]])
+                )
+            except:
+                pass
+    finally:
+        session.close()
 
 def handle_show_subscription_options(update: Update, context: CallbackContext):
     """
@@ -3748,48 +3800,9 @@ def handle_show_subscription_options(update: Update, context: CallbackContext):
     
     # Показываем варианты подписки с возможностью выбрать "Подумаю"
     # Передаем user_id для генерации правильных ссылок с Telegram ID
-    try:
-        query.edit_message_text(
-            text="Варианты WILLWAY подписки:",
-            reply_markup=get_subscription_keyboard(user_id)
-        )
-    except Exception as e:
-        logger.error(f"Ошибка при редактировании сообщения для вариантов подписки: {str(e)}")
-        # В случае ошибки отправляем новое сообщение вместо редактирования
-        context.bot.send_message(
-            chat_id=user_id,
-            text="Варианты WILLWAY подписки:",
-            reply_markup=get_subscription_keyboard(user_id)
-        )
-
-def forward_to_health_assistant(update: Update, context: CallbackContext):
-    """
-    Перенаправляет сообщение на обработку в Health ассистент
-    """
-    logger.info(f"Перенаправление сообщения в Health ассистент")
-    handle_health_assistant_message(update, context)
+    query.edit_message_text(
+        text="Варианты WILLWAY подписки:",
+        reply_markup=get_subscription_keyboard(user_id)
+    )
+    
     return
-
-def get_health_assistant_response(user_id, user_message, conversation_history):
-    """
-    Получает ответ от Health ассистента
-    
-    В этой версии использует реальный API для получения ответа.
-    """
-    logger.info(f"Запрос к Health ассистенту от пользователя {user_id}: {user_message}")
-    
-    try:
-        # Попытаемся получить ответ от GPT напрямую из модуля gpt_assistant
-        from bot.gpt_assistant import get_health_assistant_response as get_ai_response
-        
-        # Получаем ответ от GPT
-        response = get_ai_response(user_id, user_message, conversation_history)
-        
-        # Если ответ получен успешно, возвращаем его
-        if response:
-            return response
-    except Exception as e:
-        logger.error(f"Ошибка при обращении к API GPT: {e}")
-    
-    # Если произошла ошибка или ответ не получен, возвращаем заглушку
-    return "Извините, Health ассистент временно недоступен из-за технических работ. Пожалуйста, попробуйте позже."

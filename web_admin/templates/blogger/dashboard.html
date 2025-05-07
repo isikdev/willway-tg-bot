@@ -20,6 +20,7 @@
                 },
             }
         </script>
+        <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <link
             href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
@@ -64,6 +65,11 @@
         </header>
 
         <main class="container mx-auto px-4 py-8">
+            <!-- Контейнер для отображения ошибок -->
+            <div id="error-container" class="mb-4 hidden">
+                <!-- Здесь будут отображаться ошибки -->
+            </div>
+
             <div
                 class="bg-white rounded-xl shadow-md p-6 mb-8 border border-gray-100">
                 <div
@@ -77,38 +83,72 @@
                             <h2 class="text-xl font-semibold text-gray-800">{{
                                 blogger.name }}</h2>
                         </div>
-                        <p class="text-gray-500 text-sm">Дата регистрации: {{
-                            blogger.created_at.strftime('%d.%m.%Y') }}</p>
+                        <p class="text-gray-500 text-sm">Дата регистрации:
+                            {% if blogger.registration_date %}
+                            {% if blogger.registration_date is string %}
+                            {{ blogger.registration_date }}
+                            {% else %}
+                            {{ blogger.registration_date.strftime('%d.%m.%Y') }}
+                            {% endif %}
+                            {% elif blogger.join_date %}
+                            {% if blogger.join_date is string %}
+                            {{ blogger.join_date }}
+                            {% else %}
+                            {{ blogger.join_date.strftime('%d.%m.%Y') }}
+                            {% endif %}
+                            {% else %}
+                            -
+                            {% endif %}
+                        </p>
                     </div>
                     <div class="mt-4 sm:mt-0 w-full sm:w-auto">
                         <div
-                            class="flex items-center bg-gray-50 p-2 rounded-lg border border-gray-200 relative">
-                            <input type="text" id="referral-link"
-                                value="{{ referral_link }}" readonly
-                                class="bg-transparent text-sm mr-2 w-full sm:w-72 outline-none">
-                            <button id="copy-button"
-                                onclick="copyReferralLink()"
-                                class="text-primary hover:text-primary-light transition-colors p-1 rounded-md hover:bg-gray-100 flex items-center">
+                            class="flex flex-col sm:flex-row items-end sm:items-center gap-2">
+                            <button id="refresh-stats-btn"
+                                onclick="forceUpdateCharts()"
+                                class="text-primary hover:text-white hover:bg-primary border border-primary transition-colors px-4 py-2 rounded-lg text-sm flex items-center">
                                 <svg xmlns="http://www.w3.org/2000/svg"
-                                    class="h-5 w-5" fill="none"
-                                    viewBox="0 0 24 24" stroke="currentColor"
-                                    id="copy-icon">
+                                    class="h-4 w-4 mr-1" fill="none"
+                                    viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round"
                                         stroke-linejoin="round" stroke-width="2"
-                                        d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                                 </svg>
-                                <svg xmlns="http://www.w3.org/2000/svg"
-                                    class="h-5 w-5 hidden" fill="none"
-                                    viewBox="0 0 24 24" stroke="currentColor"
-                                    id="success-icon">
-                                    <path stroke-linecap="round"
-                                        stroke-linejoin="round" stroke-width="2"
-                                        d="M5 13l4 4L19 7" />
-                                </svg>
+                                Обновить данные
                             </button>
-                            <div id="tooltip"
-                                class="absolute right-0 bottom-full mb-2 bg-gray-800 text-white text-xs rounded py-1 px-2 opacity-0 pointer-events-none transition-opacity duration-300">
-                                Скопировано!
+                            <div
+                                class="flex items-center bg-gray-50 p-2 rounded-lg border border-gray-200 relative">
+                                <input type="text" id="referral-link"
+                                    value="{{ referral_link }}" readonly
+                                    class="bg-transparent text-sm mr-2 w-full sm:w-72 outline-none">
+                                <button id="copy-button"
+                                    onclick="copyReferralLink()"
+                                    class="text-primary hover:text-primary-light transition-colors p-1 rounded-md hover:bg-gray-100 flex items-center">
+                                    <svg xmlns="http://www.w3.org/2000/svg"
+                                        class="h-5 w-5" fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        id="copy-icon">
+                                        <path stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                                    </svg>
+                                    <svg xmlns="http://www.w3.org/2000/svg"
+                                        class="h-5 w-5 hidden" fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        id="success-icon">
+                                        <path stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                            stroke-width="2"
+                                            d="M5 13l4 4L19 7" />
+                                    </svg>
+                                </button>
+                                <div id="tooltip"
+                                    class="absolute right-0 bottom-full mb-2 bg-gray-800 text-white text-xs rounded py-1 px-2 opacity-0 pointer-events-none transition-opacity duration-300">
+                                    Скопировано!
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -242,83 +282,96 @@
             </div>
 
             <div
-                class="bg-white rounded-xl shadow-md p-6 border border-gray-100">
-                <h3
-                    class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg"
-                        class="h-5 w-5 text-primary mr-2" fill="none"
-                        viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                    </svg>
-                    История переходов
-                </h3>
+                class="bg-white rounded-xl shadow-md p-6 mt-8 border border-gray-100">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-xl font-semibold text-gray-800">История
+                        переходов</h2>
+                </div>
 
-                {% if recent_referrals %}
-                <div class="overflow-x-auto rounded-lg">
-                    <table class="min-w-full divide-y divide-gray-200">
+                <div class="overflow-x-auto">
+                    <table
+                        class="min-w-full divide-y divide-gray-200 border-collapse">
                         <thead>
-                            <tr>
+                            <tr class="bg-gray-50">
                                 <th
-                                    class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tl-lg">Источник</th>
+                                    class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Дата</th>
                                 <th
-                                    class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Дата</th>
+                                    class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Источник</th>
                                 <th
-                                    class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Статус</th>
+                                    class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Статус</th>
                                 <th
-                                    class="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider rounded-tr-lg">Комиссия</th>
+                                    class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Комиссия</th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
                             {% for referral in recent_referrals %}
-                            <tr class="hover:bg-gray-50 transition-colors">
-                                <td
-                                    class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{
-                                    referral.source or 'Не указан' }}</td>
-                                <td
-                                    class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{
+                            <tr>
+                                <td class="px-4 py-3 text-sm text-gray-900">
+                                    {% if referral.created_at %}
+                                    {% if referral.created_at is string %}
+                                    {{ referral.created_at }}
+                                    {% else %}
+                                    {{
                                     referral.created_at.strftime('%d.%m.%Y %H:%M')
-                                    }}</td>
-                                <td class="px-6 py-4 whitespace-nowrap">
+                                    }}
+                                    {% endif %}
+                                    {% else %}
+                                    -
+                                    {% endif %}
+                                </td>
+                                <td class="px-4 py-3 text-sm text-gray-500">
+                                    {{ referral.source }}
+                                </td>
+                                <td class="px-4 py-3 text-sm">
                                     {% if referral.converted %}
                                     <span
-                                        class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                        class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                         Конверсия
                                     </span>
                                     {% else %}
                                     <span
-                                        class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800">
+                                        class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
                                         Переход
                                     </span>
                                     {% endif %}
                                 </td>
                                 <td
-                                    class="px-6 py-4 whitespace-nowrap text-sm {% if referral.converted %}text-primary font-medium{% else %}text-gray-500{% endif %}">
+                                    class="px-4 py-3 text-sm text-gray-900 text-right">
                                     {% if referral.converted %}
-                                    {{ referral.commission_amount or 0 }} ₽
+                                    {{ referral.commission_amount }} ₽
                                     {% else %}
                                     -
                                     {% endif %}
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="4"
+                                    class="px-4 py-8 text-sm text-gray-500 text-center">
+                                    <div class="flex flex-col items-center">
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            class="h-10 w-10 text-gray-300 mb-2"
+                                            fill="none" viewBox="0 0 24 24"
+                                            stroke="currentColor">
+                                            <path stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        <p>У вас пока нет переходов по
+                                            реферальной ссылке</p>
+                                        <p
+                                            class="mt-1 text-sm text-gray-400">Поделитесь
+                                            своей ссылкой, чтобы привлечь
+                                            новых пользователей</p>
+                                    </div>
                                 </td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
-                {% else %}
-                <div
-                    class="text-center py-10 text-gray-500 bg-gray-50 rounded-lg">
-                    <svg xmlns="http://www.w3.org/2000/svg"
-                        class="h-12 w-12 text-gray-400 mx-auto mb-3" fill="none"
-                        viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    <p>Нет данных о переходах</p>
-                </div>
-                {% endif %}
             </div>
         </main>
 
@@ -331,256 +384,108 @@
 
         <script>
         function copyReferralLink() {
-            const copyText = document.getElementById("referral-link");
-            
-            // Используем другой способ копирования для лучшей совместимости
-            const textArea = document.createElement('textarea');
-            textArea.value = copyText.value;
-            document.body.appendChild(textArea);
-            textArea.select();
-            
-            try {
-                const successful = document.execCommand('copy');
+                const referralLink = document.getElementById('referral-link');
+                const tooltip = document.getElementById('tooltip');
+                const copyIcon = document.getElementById('copy-icon');
+                const successIcon = document.getElementById('success-icon');
                 
-                const copyIcon = document.getElementById("copy-icon");
-                const successIcon = document.getElementById("success-icon");
-                const tooltip = document.getElementById("tooltip");
+                if (!referralLink) return;
                 
-                // Анимация иконки
-                copyIcon.classList.add("hidden");
-                successIcon.classList.remove("hidden");
+                referralLink.select();
+                document.execCommand('copy');
                 
-                // Показать всплывающую подсказку
-                tooltip.classList.remove("opacity-0");
-                tooltip.classList.add("opacity-100");
+                copyIcon.classList.add('hidden');
+                successIcon.classList.remove('hidden');
+                tooltip.classList.remove('opacity-0');
                 
-                // Через 2 секунды вернуть исходное состояние
                 setTimeout(() => {
-                    copyIcon.classList.remove("hidden");
-                    successIcon.classList.add("hidden");
-                    tooltip.classList.remove("opacity-100");
-                    tooltip.classList.add("opacity-0");
+                    copyIcon.classList.remove('hidden');
+                    successIcon.classList.add('hidden');
+                    tooltip.classList.add('opacity-0');
                 }, 2000);
-            } catch (err) {
-                console.error('Ошибка при копировании:', err);
-                alert('Не удалось скопировать ссылку. Пожалуйста, выделите и скопируйте её вручную.');
             }
             
-            document.body.removeChild(textArea);
-        }
-        
-        document.addEventListener('DOMContentLoaded', function() {
-            // Функция для загрузки и обновления данных графиков
-            let referralsChart, earningsChart;
-            
+            // Функция для обновления графиков и статистики
             function updateCharts() {
-                console.log('Обновление графиков...');
+                // Получаем ключ доступа из URL
+                    const urlParams = new URLSearchParams(window.location.search);
+                const key = urlParams.get('key');
                 
-                // Загружаем реальные данные с сервера
-                fetch(`/api/blogger/stats?id={{ blogger.id }}&key={{ blogger.access_key }}&nocache=${new Date().getTime()}`)
+                if (!key) return;
+                
+                fetch(`/api/blogger/stats?key=${key}`)
                     .then(response => response.json())
                     .then(data => {
-                        console.log('Получены данные:', data);
-                        
                         if (data.success) {
-                            // Проверяем наличие данных
-                            if (!data.daily_stats || !Array.isArray(data.daily_stats) || data.daily_stats.length === 0) {
-                                console.log('Данные ежедневной статистики отсутствуют');
-                                
-                                // Показываем сообщение об отсутствии данных на графиках
-                                showNoDataMessage('referrals-chart');
-                                showNoDataMessage('earnings-chart');
-                                return;
+                            // Обновляем статистику
+                            document.getElementById('total-referrals').textContent = data.stats.total_referrals;
+                            document.getElementById('total-conversions').textContent = data.stats.total_conversions;
+                            document.getElementById('total-earnings').textContent = data.stats.total_earned;
+                            
+                            // Если есть новые переходы, перезагружаем страницу для обновления таблицы
+                            if (data.new_referrals) {
+                                location.reload();
                             }
-                            
-                            // Получаем статистику за последние 14 дней
-                            const dailyStats = data.daily_stats.slice(0, 14).reverse();
-                            console.log('Данные для графиков:', dailyStats);
-                            
-                            // Если есть данные, но они в нестандартном формате, попробуем их адаптировать
-                            let formattedStats = dailyStats;
-                            if (dailyStats.length > 0 && (typeof dailyStats[0].referrals === 'undefined')) {
-                                console.log('Данные в нестандартном формате, адаптируем...');
-                                // Пробуем найти нужные поля в зависимости от структуры API
-                                formattedStats = dailyStats.map(day => ({
-                                    date: day.date || day.day || day.date_str || '',
-                                    referrals: day.referrals || day.clicks || day.visits || 0,
-                                    conversions: day.conversions || day.conv || 0,
-                                    earnings: day.earnings || day.income || day.revenue || 0
-                                }));
-                                console.log('Адаптированные данные:', formattedStats);
-                            }
-                            
-                            // Если графики уже существуют, обновляем данные
-                            if (referralsChart) {
-                                referralsChart.data.labels = formattedStats.map(day => 
-                                    typeof day.date === 'string' && day.date.includes('-') ? day.date.slice(5) : day.date);
-                                referralsChart.data.datasets[0].data = formattedStats.map(day => day.referrals);
-                                referralsChart.data.datasets[1].data = formattedStats.map(day => day.conversions);
-                                referralsChart.update();
-                            } else {
-                                // Создаем график переходов
-                                const referralCtx = document.getElementById('referrals-chart').getContext('2d');
-                                
-                                referralsChart = new Chart(referralCtx, {
-                                    type: 'line',
-                                    data: {
-                                        labels: formattedStats.map(day => 
-                                            typeof day.date === 'string' && day.date.includes('-') ? day.date.slice(5) : day.date),
-                                        datasets: [
-                                            {
-                                                label: 'Переходы',
-                                                data: formattedStats.map(day => day.referrals),
-                                                borderColor: '#154c47',
-                                                backgroundColor: 'rgba(21, 76, 71, 0.1)',
-                                                tension: 0.3,
-                                                fill: true
-                                            },
-                                            {
-                                                label: 'Конверсии',
-                                                data: formattedStats.map(day => day.conversions),
-                                                borderColor: '#16a34a',
-                                                backgroundColor: 'rgba(22, 163, 74, 0.1)',
-                                                tension: 0.3,
-                                                fill: true
-                                            }
-                                        ]
-                                    },
-                                    options: {
-                                        responsive: true,
-                                        plugins: {
-                                            legend: {
-                                                position: 'top',
-                                            },
-                                            tooltip: {
-                                                mode: 'index',
-                                                intersect: false,
-                                            }
-                                        },
-                                        scales: {
-                                            y: {
-                                                beginAtZero: true,
-                                                grid: {
-                                                    drawBorder: false
-                                                }
-                                            },
-                                            x: {
-                                                grid: {
-                                                    display: false
-                                                }
-                                            }
-                                        }
-                                    }
-                                });
-                            }
-                            
-                            // Если график заработка существует, обновляем данные
-                            if (earningsChart) {
-                                earningsChart.data.labels = formattedStats.map(day => 
-                                    typeof day.date === 'string' && day.date.includes('-') ? day.date.slice(5) : day.date);
-                                earningsChart.data.datasets[0].data = formattedStats.map(day => day.earnings);
-                                earningsChart.update();
-                            } else {
-                                // Создаем график заработка
-                                const earningsCtx = document.getElementById('earnings-chart').getContext('2d');
-                                
-                                earningsChart = new Chart(earningsCtx, {
-                                    type: 'bar',
-                                    data: {
-                                        labels: formattedStats.map(day => 
-                                            typeof day.date === 'string' && day.date.includes('-') ? day.date.slice(5) : day.date),
-                                        datasets: [
-                                            {
-                                                label: 'Заработок (₽)',
-                                                data: formattedStats.map(day => day.earnings),
-                                                backgroundColor: 'rgba(21, 76, 71, 0.7)',
-                                                borderRadius: 6
-                                            }
-                                        ]
-                                    },
-                                    options: {
-                                        responsive: true,
-                                        plugins: {
-                                            legend: {
-                                                position: 'top',
-                                            },
-                                            tooltip: {
-                                                callbacks: {
-                                                    label: function(context) {
-                                                        return context.parsed.y + ' ₽';
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        scales: {
-                                            y: {
-                                                beginAtZero: true,
-                                                grid: {
-                                                    drawBorder: false
-                                                }
-                                            },
-                                            x: {
-                                                grid: {
-                                                    display: false
-                                                }
-                                            }
-                                        }
-                                    }
-                                });
-                            }
-                            
-                            // Обновляем основные показатели
-                            updateStatistics(data);
                         } else {
-                            console.error('Ошибка при загрузке данных:', data.error || 'Неизвестная ошибка');
-                            showNoDataMessage('referrals-chart');
-                            showNoDataMessage('earnings-chart');
+                            showError(data.error || 'Ошибка при получении данных');
                         }
                     })
                     .catch(error => {
-                        console.error('Ошибка при загрузке статистики:', error);
-                        showNoDataMessage('referrals-chart');
-                        showNoDataMessage('earnings-chart');
+                        console.error('Ошибка при обновлении данных:', error);
                     });
             }
             
-            // Функция для обновления основных показателей
-            function updateStatistics(data) {
-                // Если в ответе есть общая статистика
-                if (data.total_stats) {
-                    document.getElementById('total-referrals').textContent = data.total_stats.referrals || '{{ total_referrals }}';
-                    document.getElementById('total-conversions').textContent = data.total_stats.conversions || '{{ total_conversions }}';
-                    
-                    const conversionRate = data.total_stats.referrals > 0 
-                        ? ((data.total_stats.conversions / data.total_stats.referrals) * 100).toFixed(1) + '%'
-                        : '0%';
-                    document.getElementById('conversion-rate').textContent = conversionRate;
-                    
-                    document.getElementById('total-earnings').textContent = (data.total_stats.earnings || '{{ total_earnings }}') + ' ₽';
+            // Функция принудительного обновления статистики
+            function forceUpdateCharts() {
+                const button = document.getElementById('refresh-stats-btn');
+                if (button) {
+                    button.disabled = true;
+                    button.classList.add('opacity-50');
                 }
+                
+                // Обновляем статистику
+                updateCharts();
+                
+                setTimeout(() => {
+                    if (button) {
+                        button.disabled = false;
+                        button.classList.remove('opacity-50');
+                    }
+                }, 2000);
             }
             
-            // Функция для отображения сообщения об отсутствии данных
-            function showNoDataMessage(canvasId) {
-                const canvas = document.getElementById(canvasId);
-                const ctx = canvas.getContext('2d');
+            // Функция для отображения ошибок
+            function showError(message) {
+                const errorContainer = document.getElementById('error-container');
+                if (!errorContainer) return;
                 
-                // Очищаем холст
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                errorContainer.classList.remove('hidden');
+                errorContainer.innerHTML = `
+                    <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <svg class="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                            </div>
+                            <div class="ml-3">
+                                <p>${message}</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
                 
-                // Рисуем сообщение
-                ctx.font = '14px Inter';
-                ctx.fillStyle = '#6B7280';
-                ctx.textAlign = 'center';
-                ctx.fillText('Нет данных для отображения', canvas.width / 2, canvas.height / 2);
+                // Автоматически скрываем ошибку через 5 секунд
+                setTimeout(() => {
+                    errorContainer.classList.add('hidden');
+                }, 5000);
             }
             
-            // Первичная загрузка данных
-            updateCharts();
-            
-            // Обновление данных каждые 60 секунд
-            setInterval(updateCharts, 60000);
-        });
-    </script>
+            // Автоматическое обновление каждые 2 минуты
+            document.addEventListener('DOMContentLoaded', function() {
+                updateCharts();
+                setInterval(updateCharts, 120000);
+            });
+        </script>
     </body>
 </html>

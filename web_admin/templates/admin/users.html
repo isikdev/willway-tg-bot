@@ -79,11 +79,16 @@
                                             class="whitespace-nowrap px-3 py-4 text-sm text-gray-500">{{
                                             user.username or 'Без имени' }}</td>
                                         <td
-                                            class="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                                            class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            {% if user.registration_date %}
                                             {{
                                             user.registration_date.strftime('%d.%m.%Y')
-                                            if user.registration_date else
-                                            'Неизвестно' }}
+                                            if user.registration_date is not
+                                            string else user.registration_date
+                                            }}
+                                            {% else %}
+                                            Неизвестно
+                                            {% endif %}
                                         </td>
                                         <td
                                             class="whitespace-nowrap px-3 py-4 text-sm">
@@ -103,7 +108,7 @@
                                                 <button type="button"
                                                     class="inline-flex items-center rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-primary shadow-sm ring-1 ring-inset ring-primary/30 hover:bg-primary hover:text-white transition-all duration-300"
                                                     data-user-id="{{ user.id }}"
-                                                    onclick="showUserDetails({{ user.id }})">
+                                                    onclick="showUserDetails('{{ user.id }}')">
                                                     <svg
                                                         xmlns="http://www.w3.org/2000/svg"
                                                         fill="none"
@@ -126,7 +131,7 @@
                                                 <button type="button"
                                                     class="inline-flex items-center rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-blue-600 shadow-sm ring-1 ring-inset ring-blue-600/30 hover:bg-blue-600 hover:text-white transition-all duration-300"
                                                     data-user-id="{{ user.id }}"
-                                                    onclick="editUserProfile({{ user.id }})">
+                                                    onclick="editUserProfile('{{ user.id }}')">
                                                     <svg
                                                         xmlns="http://www.w3.org/2000/svg"
                                                         fill="none"
@@ -145,7 +150,7 @@
                                                 <button type="button"
                                                     class="inline-flex items-center rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-amber-600 shadow-sm ring-1 ring-inset ring-amber-600/30 hover:bg-amber-600 hover:text-white transition-all duration-300"
                                                     data-user-id="{{ user.id }}"
-                                                    onclick="resetSubscription({{ user.id }})">
+                                                    onclick="resetSubscription('{{ user.id }}')">
                                                     <svg
                                                         xmlns="http://www.w3.org/2000/svg"
                                                         fill="none"
@@ -164,7 +169,7 @@
                                                 <button type="button"
                                                     class="inline-flex items-center rounded-md bg-white px-2.5 py-1.5 text-sm font-semibold text-red-600 shadow-sm ring-1 ring-inset ring-red-600/30 hover:bg-red-600 hover:text-white transition-all duration-300"
                                                     data-user-id="{{ user.id }}"
-                                                    onclick="deleteUser({{ user.id }})">
+                                                    onclick="deleteUser('{{ user.id }}')">
                                                     <svg
                                                         xmlns="http://www.w3.org/2000/svg"
                                                         fill="none"
@@ -359,15 +364,17 @@
                                     <dd class="mt-1 text-sm text-gray-900"
                                         id="user-subscription-expires"></dd>
                                 </div>
-                                <div class="animate-pulse-once mt-6"
+                                <div
+                                    class="animate-pulse-once sm:col-span-2 mt-6"
                                     style="animation-delay: 700ms;">
                                     <h4
                                         class="text-md font-medium text-gray-900">Сомнения
                                         при выборе подписки</h4>
-                                    <div class="mt-2 bg-gray-50 rounded-md"
-                                        style="width: 420px;">
+                                    <div
+                                        class="mt-2 bg-gray-50 rounded-md w-full">
                                         <div
-                                            id="user-subscription-doubt-container">
+                                            id="user-subscription-doubt-container"
+                                            class="flex flex-col">
                                             <div
                                                 id="user-subscription-doubt-status-container">
                                                 <p
@@ -401,6 +408,66 @@
                                                     id="user-subscription-doubt-feedback"
                                                     class="mt-1 text-sm text-gray-900 p-2 bg-gray-100 rounded">
                                                     Нет данных
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div
+                                    class="animate-pulse-once sm:col-span-2 mt-6"
+                                    style="animation-delay: 800ms;">
+                                    <h4
+                                        class="text-md font-medium text-gray-900">Отмена
+                                        подписки</h4>
+                                    <div
+                                        class="mt-2 bg-gray-50 rounded-md w-full">
+                                        <div id="user-cancellation-container"
+                                            class="flex flex-col">
+                                            <div
+                                                id="user-cancellation-date-container">
+                                                <p
+                                                    class="text-sm font-medium text-gray-500">Дата
+                                                    отмены:</p>
+                                                <div id="user-cancellation-date"
+                                                    class="mt-1 text-sm text-gray-900 p-2 bg-gray-100 rounded">
+                                                    Не отменена
+                                                </div>
+                                            </div>
+                                            <div
+                                                id="user-cancellation-reason1-container"
+                                                class="mt-3">
+                                                <p
+                                                    class="text-sm font-medium text-gray-500">Причина
+                                                    отмены 1:</p>
+                                                <div
+                                                    id="user-cancellation-reason1"
+                                                    class="mt-1 text-sm text-gray-900 p-2 bg-gray-100 rounded">
+                                                    Не указана
+                                                </div>
+                                            </div>
+                                            <div
+                                                id="user-cancellation-reason2-container"
+                                                class="mt-3">
+                                                <p
+                                                    class="text-sm font-medium text-gray-500">Причина
+                                                    отмены 2:</p>
+                                                <div
+                                                    id="user-cancellation-reason2"
+                                                    class="mt-1 text-sm text-gray-900 p-2 bg-gray-100 rounded">
+                                                    Не указана
+                                                </div>
+                                            </div>
+                                            <div
+                                                id="user-cancellation-comment-container"
+                                                class="mt-3">
+                                                <p
+                                                    class="text-sm font-medium text-gray-500">Дополнительный
+                                                    комментарий:</p>
+                                                <div
+                                                    id="user-cancellation-comment"
+                                                    class="mt-1 text-sm text-gray-900 p-2 bg-gray-100 rounded">
+                                                    Нет дополнительных
+                                                    комментариев
                                                 </div>
                                             </div>
                                         </div>
@@ -811,6 +878,42 @@
                     userData.subscription_doubt_response || 'Нет данных';
                 document.getElementById('user-subscription-doubt-feedback').textContent = 
                     userData.subscription_doubt_feedback || 'Нет данных';
+                
+                // Заполняем данные об отмене подписки
+                // Получаем информацию об отмене из вложенного объекта cancellation_info
+                const cancellationInfo = userData.cancellation_info || {};
+                
+                // Дата отмены
+                const cancellationDate = document.getElementById('user-cancellation-date');
+                if (cancellationDate) {
+                    cancellationDate.textContent = cancellationInfo.cancellation_date ? 
+                        new Date(cancellationInfo.cancellation_date).toLocaleDateString() : 
+                        'Не отменена';
+                    
+                    // Если пользователь отменил подписку, выделяем дату отмены красным цветом
+                    if (cancellationInfo.cancellation_date) {
+                        cancellationDate.classList.add('text-red-600', 'font-medium');
+                    } else {
+                        cancellationDate.classList.remove('text-red-600', 'font-medium');
+                    }
+                }
+                
+                // Причины отмены
+                const cancellationReason1 = document.getElementById('user-cancellation-reason1');
+                if (cancellationReason1) {
+                    cancellationReason1.textContent = cancellationInfo.cancellation_reason_1 || 'Не указана';
+                }
+                
+                const cancellationReason2 = document.getElementById('user-cancellation-reason2');
+                if (cancellationReason2) {
+                    cancellationReason2.textContent = cancellationInfo.cancellation_reason_2 || 'Не указана';
+                }
+                
+                // Дополнительный комментарий
+                const cancellationComment = document.getElementById('user-cancellation-comment');
+                if (cancellationComment) {
+                    cancellationComment.textContent = cancellationInfo.cancellation_additional_comment || 'Нет дополнительных комментариев';
+                }
                 
                 // Анимированное отображение модального окна
                 const modal = document.getElementById('userModal');

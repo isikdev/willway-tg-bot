@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union, Any, Callable
 import traceback
 import random
-from sqlalchemy import or_
 
 load_dotenv()
 
@@ -772,48 +771,6 @@ def back_to_main_menu(update: Update, context: CallbackContext):
 def start(update: Update, context: CallbackContext) -> int:
     user_id = update.effective_user.id
     username = update.effective_user.username
-    
-    # Добавьте эту проверку в начало функции
-    # Если передан параметр /start, проверяем, может это код блогера
-    if context.args and (context.args[0].startswith('ref_') and len(context.args[0]) > 8):
-        from api_patch import track_referral_click  # Импортируем функцию для работы с блогерами
-        
-        logger.info(f"[REFERRAL] Возможный код блогера: {context.args[0]}")
-        success, result = track_referral_click(context.args[0], user_id, username)
-        
-        if success:
-            logger.info(f"[REFERRAL] Успешная обработка кода блогера: {result}")
-            # Пользователь может быть новым, создадим или обновим запись
-            session = get_session()
-            try:
-                user = session.query(User).filter(User.user_id == user_id).first()
-                if not user:
-                    user = User(
-                        user_id=user_id,
-                        username=username,
-                        registration_date=datetime.now(TIMEZONE),
-                        blogger_ref_code=context.args[0].replace('ref_', ''),
-                        referral_source='blogger'
-                    )
-                    session.add(user)
-                else:
-                    user.blogger_ref_code = context.args[0].replace('ref_', '')
-                    user.referral_source = 'blogger'
-                
-                session.commit()
-                logger.info(f"[REFERRAL] Сохранён код блогера для пользователя {user_id}")
-                
-                # Перейдем к показу приветственного видео
-                session.close()
-                send_welcome_video(update, context)
-                return ConversationHandler.END
-            except Exception as e:
-                session.rollback()
-                logger.error(f"[REFERRAL] Ошибка при сохранении кода блогера: {str(e)}")
-                session.close()
-    
-    # Продолжение существующего кода для обычных реферальных кодов...
-    
     chat_id = update.effective_chat.id
     
     # Проверяем наличие аргументов в команде /start
@@ -903,14 +860,7 @@ def start(update: Update, context: CallbackContext) -> int:
             # Если передан реферальный код, обрабатываем его
             if referral_code:
                 # Проверяем существование кода
-                ref_code = session.query(ReferralCode).filter(
-                    or_(
-                        ReferralCode.code == referral_code,  # Оригинальный код
-                        ReferralCode.code == referral_code.replace('ref_', ''),  # Без префикса
-                        ReferralCode.code == f"ref_{referral_code.replace('ref_', '')}"  # С префиксом
-                    ),
-                    ReferralCode.is_active == True
-                ).first()
+                ref_code = session.query(ReferralCode).filter(ReferralCode.code == referral_code, ReferralCode.is_active == True).first()
                 if ref_code and str(ref_code.user_id) != str(user_id):  # Проверяем по строке для корректного сравнения
                     logger.info(f"[REFERRAL] Найден активный реферальный код: {referral_code}, владелец: {ref_code.user_id}")
                     
@@ -2056,46 +2006,16 @@ def handle_menu_callback(update: Update, context: CallbackContext):
                 code = ref_code.code
                 logger.info(f"[REFERRAL] Найден существующий реферальный код {code} для пользователя {user_id}")
             
-            # Получаем ID пользователя в базе данных
-            user_db = session.query(User).filter(User.user_id == user_id).first()
-            if not user_db:
-                logger.error(f"[REFERRAL_ERROR] Пользователь с ID {user_id} не найден в БД")
-                raise Exception("Пользователь не найден в базе данных")
-                
             # Получаем количество приглашенных друзей
-            total_invited = 0
-            paid_friends = 0
+            total_invited = session.query(ReferralUse).filter(
+                ReferralUse.referrer_id == user_id
+            ).count()
             
-            # Попытка 1: По полю referrer_id == user_id (telegram ID)
-            try:
-                total_invited = session.query(ReferralUse).filter(
-                    ReferralUse.referrer_id == user_id
-                ).count()
-                
-                paid_friends = session.query(ReferralUse).filter(
-                    ReferralUse.referrer_id == user_id,
-                    ReferralUse.subscription_purchased == True
-                ).count()
-                
-                logger.info(f"[REFERRAL] Статистика по Telegram ID: всего={total_invited}, с подпиской={paid_friends}")
-            except Exception as e:
-                logger.warning(f"[REFERRAL_WARNING] Ошибка при получении статистики по Telegram ID: {str(e)}")
-            
-            # Если не нашли по прямому ID, пробуем через ID в БД
-            if total_invited == 0:
-                try:
-                    total_invited = session.query(ReferralUse).filter(
-                        ReferralUse.referrer_id == user_db.id
-                    ).count()
-                    
-                    paid_friends = session.query(ReferralUse).filter(
-                        ReferralUse.referrer_id == user_db.id,
-                        ReferralUse.subscription_purchased == True
-                    ).count()
-                    
-                    logger.info(f"[REFERRAL] Статистика по ID в БД: всего={total_invited}, с подпиской={paid_friends}")
-                except Exception as e:
-                    logger.warning(f"[REFERRAL_WARNING] Ошибка при получении статистики по ID в БД: {str(e)}")
+            # Получаем количество друзей, оплативших подписку
+            paid_friends = session.query(ReferralUse).filter(
+                ReferralUse.referrer_id == user_id,
+                ReferralUse.subscription_purchased == True
+            ).count()
             
             # Получаем имя бота
             bot_username = os.environ.get('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')  # Получаем из переменной окружения
@@ -2108,20 +2028,16 @@ def handle_menu_callback(update: Update, context: CallbackContext):
             # Формируем реферальную ссылку
             referral_link = f"https://t.me/{bot_username}?start={code}"
             
-            # Получаем клавиатуру и ссылку
-            keyboard, referral_link = get_referral_keyboard(user_id, code)
-            
-            # Формируем простое сообщение без эмодзи и сложного форматирования, но с ссылкой
+            # Формируем сообщение без эмодзи и специальных символов
             message = (
                 "Приглашайте друзей и получайте бонусы!\n\n"
                 "За каждого друга, который оформит подписку, "
                 "вы получите +1 месяц к вашей текущей подписке.\n\n"
-                "Статистика:\n"
+                "Ваша статистика:\n"
                 f"- Всего приглашено друзей: {total_invited}\n"
                 f"- Друзей с подпиской: {paid_friends}\n"
                 f"- Бонусных месяцев получено: {paid_friends}\n\n"
-                f"Ваша реферальная ссылка: {referral_link}\n\n"
-                f"Ваш реферальный код: {code}"
+                f"Ваш реферальный код: {code}\n"
             )
             
             # Создаем клавиатуру
@@ -2133,6 +2049,7 @@ def handle_menu_callback(update: Update, context: CallbackContext):
             context.bot.send_message(
                 chat_id=user_id,
                 text=message,
+                parse_mode=ParseMode.MARKDOWN,
                 reply_markup=keyboard
             )
             
@@ -2226,6 +2143,7 @@ def handle_menu_callback(update: Update, context: CallbackContext):
             
             query.edit_message_text(
                 message,
+                parse_mode=ParseMode.MARKDOWN,
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="invite_friend")]])
             )
         except Exception as e:
@@ -2821,21 +2739,8 @@ def is_admin(user_id):
     """Проверяет, является ли пользователь администратором"""
     session = get_session()
     try:
-        # В модели AdminUser нет поля user_id, поэтому используем другой подход
-        # Проверяем, есть ли пользователь в специальном списке администраторов
-        admin_usernames = ['admin', 'superadmin']  # Можно расширить список
-        
-        # Получаем пользователя из базы данных
-        user = session.query(User).filter(User.user_id == user_id).first()
-        if user and user.username and user.username in admin_usernames:
-            return True
-            
-        # Дополнительная проверка для списка известных ID администраторов
-        admin_ids = ['123456789', '987654321']  # Здесь нужно указать реальные ID администраторов
-        if str(user_id) in admin_ids:
-            return True
-            
-        return False
+        admin = session.query(AdminUser).filter(AdminUser.user_id == user_id).first()
+        return admin is not None
     except Exception as e:
         logger.error(f"Ошибка при проверке статуса администратора: {str(e)}")
         return False
@@ -3127,46 +3032,16 @@ def handle_text_messages(update: Update, context: CallbackContext):
                 code = ref_code.code
                 logger.info(f"[REFERRAL] Найден существующий реферальный код {code} для пользователя {user_id}")
             
-            # Получаем ID пользователя в базе данных
-            user_db = session.query(User).filter(User.user_id == user_id).first()
-            if not user_db:
-                logger.error(f"[REFERRAL_ERROR] Пользователь с ID {user_id} не найден в БД")
-                raise Exception("Пользователь не найден в базе данных")
-                
             # Получаем количество приглашенных друзей
-            total_invited = 0
-            paid_friends = 0
+            total_invited = session.query(ReferralUse).filter(
+                ReferralUse.referrer_id == user_id
+            ).count()
             
-            # Попытка 1: По полю referrer_id == user_id (telegram ID)
-            try:
-                total_invited = session.query(ReferralUse).filter(
-                    ReferralUse.referrer_id == user_id
-                ).count()
-                
-                paid_friends = session.query(ReferralUse).filter(
-                    ReferralUse.referrer_id == user_id,
-                    ReferralUse.subscription_purchased == True
-                ).count()
-                
-                logger.info(f"[REFERRAL] Статистика по Telegram ID: всего={total_invited}, с подпиской={paid_friends}")
-            except Exception as e:
-                logger.warning(f"[REFERRAL_WARNING] Ошибка при получении статистики по Telegram ID: {str(e)}")
-            
-            # Если не нашли по прямому ID, пробуем через ID в БД
-            if total_invited == 0:
-                try:
-                    total_invited = session.query(ReferralUse).filter(
-                        ReferralUse.referrer_id == user_db.id
-                    ).count()
-                    
-                    paid_friends = session.query(ReferralUse).filter(
-                        ReferralUse.referrer_id == user_db.id,
-                        ReferralUse.subscription_purchased == True
-                    ).count()
-                    
-                    logger.info(f"[REFERRAL] Статистика по ID в БД: всего={total_invited}, с подпиской={paid_friends}")
-                except Exception as e:
-                    logger.warning(f"[REFERRAL_WARNING] Ошибка при получении статистики по ID в БД: {str(e)}")
+            # Получаем количество друзей, оплативших подписку
+            paid_friends = session.query(ReferralUse).filter(
+                ReferralUse.referrer_id == user_id,
+                ReferralUse.subscription_purchased == True
+            ).count()
             
             # Получаем имя бота
             bot_username = os.environ.get('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')  # Получаем из переменной окружения
@@ -3179,20 +3054,16 @@ def handle_text_messages(update: Update, context: CallbackContext):
             # Формируем реферальную ссылку
             referral_link = f"https://t.me/{bot_username}?start={code}"
             
-            # Получаем клавиатуру и ссылку
-            keyboard, referral_link = get_referral_keyboard(user_id, code)
-            
-            # Формируем простое сообщение без эмодзи и сложного форматирования, но с ссылкой
+            # Формируем сообщение
             message = (
                 "Приглашайте друзей и получайте бонусы!\n\n"
-                "За каждого друга, который оформит подписку, "
+                "За каждого друга, который перейдет по вашей ссылке и оформит подписку, "
                 "вы получите +1 месяц к вашей текущей подписке.\n\n"
-                "Статистика:\n"
+                "Ваша статистика:\n"
                 f"- Всего приглашено друзей: {total_invited}\n"
                 f"- Друзей с подпиской: {paid_friends}\n"
                 f"- Бонусных месяцев получено: {paid_friends}\n\n"
-                f"Ваша реферальная ссылка: {referral_link}\n\n"
-                f"Ваш реферальный код: {code}"
+                f"Ваш реферальный код: {code}\n"
             )
             
             # Создаем клавиатуру
@@ -3201,9 +3072,9 @@ def handle_text_messages(update: Update, context: CallbackContext):
             ])
             
             # Отправляем сообщение
-            context.bot.send_message(
-                chat_id=user_id,
+            update.message.reply_text(
                 text=message,
+                parse_mode=ParseMode.MARKDOWN,
                 reply_markup=keyboard
             )
             
@@ -3659,77 +3530,163 @@ def help_command(update: Update, context: CallbackContext):
 __all__ = ['get_bot_config']
 
 def get_referral_keyboard(user_id, ref_code):
-    """Генерирует клавиатуру для реферальной программы и ссылку"""
-    # Получаем имя бота из переменной окружения
-    bot_username = os.environ.get('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')
-    referral_link = f"https://t.me/{bot_username}?start={ref_code}"
-    
+    """Генерирует клавиатуру для реферальной программы"""
     # Создаем простую клавиатуру только с кнопкой Назад
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("Назад", callback_data="back_to_menu")]
     ])
     
-    return keyboard, referral_link
+    return keyboard, ref_code
 
 def invite_friend(update: Update, context: CallbackContext):
-    """Максимально простая заглушка"""
+    """Максимально упрощенная функция для реферальной программы"""
     user_id = update.effective_user.id
     
     # Определяем тип запроса
     if update.callback_query:
         query = update.callback_query
         query.answer()
-        message_sender = query.edit_message_text
     else:
         query = None
-        message_sender = lambda text, reply_markup: context.bot.send_message(
-            chat_id=user_id, text=text, reply_markup=reply_markup)
     
-    # Создаем очень простое сообщение
-    message = "Ваш реферальный код: 3ROCO71M"
-    
-    # Простая клавиатура
-    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]])
-    
-    # Отправляем сообщение
+    session = get_session()
     try:
-        message_sender(message, reply_markup=keyboard)
-    except Exception as e:
-        logger.error(f"[REFERRAL_ERROR] Ошибка: {str(e)}")
-        # В случае ошибки пробуем отправить новое сообщение
-        if query:
-            context.bot.send_message(
-                chat_id=user_id,
-                text="Произошла ошибка. Повторите позже.",
-                reply_markup=keyboard
-            )
+        # Получаем пользователя из БД
+        user_db = session.query(User).filter(User.user_id == user_id).first()
+        if not user_db:
+            logger.error(f"[REFERRAL_ERROR] Пользователь с ID {user_id} не найден в базе данных")
+            message = "Произошла ошибка. Пожалуйста, повторите попытку позже."
+            if query:
+                query.edit_message_text(message, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]]))
+            else:
+                context.bot.send_message(chat_id=user_id, text=message)
+            session.close()
+            return
+            
+        # Получаем реферальный код
+        try:
+            # Пробуем найти по is_active
+            ref_code = session.query(ReferralCode).filter(ReferralCode.user_id == user_db.id, ReferralCode.is_active == True).first()
+        except Exception as e:
+            logger.warning(f"[REFERRAL_WARNING] Ошибка при поиске по is_active: {str(e)}")
+            try:
+                # Пробуем найти по active
+                ref_code = session.query(ReferralCode).filter(ReferralCode.user_id == user_db.id, ReferralCode.active == True).first()
+            except Exception as e2:
+                logger.warning(f"[REFERRAL_WARNING] Ошибка при поиске по active: {str(e2)}")
+                # Если и так не получилось, берем любой код
+                ref_code = session.query(ReferralCode).filter(ReferralCode.user_id == user_db.id).first()
+        
+        # Если кода нет, генерируем новый
+        if not ref_code:
+            import random
+            import string
+            new_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+            logger.info(f"[REFERRAL] Создаем новый реферальный код {new_code} для пользователя {user_id}")
+            
+            # Создаем новый код
+            ref_code = ReferralCode(user_id=user_db.id, code=new_code)
+            try:
+                ref_code.is_active = True
+            except:
+                try:
+                    ref_code.active = True
+                except:
+                    pass
+                
+            session.add(ref_code)
+            session.commit()
+            code = new_code
         else:
-            # Если это уже было обычное сообщение, то просто логируем ошибку
-            pass
+            code = ref_code.code
+            
+        logger.info(f"[REFERRAL] Код для пользователя {user_id}: {code}")
+        
+        # Определяем количество приглашенных и оплативших
+        total_invited = 0
+        paid_friends = 0
+        
+        try:
+            # Получаем количество приглашенных друзей
+            total_invited = session.query(ReferralUse).filter(
+                ReferralUse.referrer_id == user_db.id
+            ).count()
+            
+            # Получаем количество друзей, купивших подписку
+            paid_friends = session.query(ReferralUse).filter(
+                ReferralUse.referrer_id == user_db.id,
+                ReferralUse.subscription_purchased == True
+            ).count()
+        except Exception as e:
+            logger.error(f"[REFERRAL_ERROR] Ошибка при подсчете статистики: {str(e)}")
+            
+        # Формируем сообщение без сложного форматирования
+        message = (
+            "Приглашайте друзей и получайте бонусы!\n\n"
+            "🎁 Приглашайте друзей и получайте бонусы!\n\n"
+            "За каждого друга, который перейдет по вашей ссылке и оформит подписку, "
+            "вы получите +1 месяц к вашей текущей подписке.\n\n"
+            "📊 Ваша статистика:\n"
+            f"• Всего приглашено друзей: {total_invited}\n"
+            f"• Друзей с подпиской: {paid_friends}\n"
+            f"• Бонусных месяцев получено: {paid_friends}\n\n"
+            f"Ваш реферальный код: {code}\n"
+        )
+        
+        # Создаем клавиатуру
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("Назад", callback_data="back_to_menu")]
+        ])
+        
+        # Отправляем сообщение без сложного форматирования
+        if query:
+            try:
+                query.edit_message_text(message, reply_markup=keyboard)
+            except Exception as e:
+                logger.error(f"[REFERRAL_ERROR] Ошибка при редактировании сообщения: {str(e)}")
+                context.bot.send_message(chat_id=user_id, text=message, reply_markup=keyboard)
+        else:
+            context.bot.send_message(chat_id=user_id, text=message, reply_markup=keyboard)
+            
+    except Exception as e:
+        logger.error(f"[REFERRAL_ERROR] Ошибка при обработке приглашения друга: {str(e)}")
+        message = "Произошла ошибка. Пожалуйста, повторите попытку позже."
+        if query:
+            try:
+                query.edit_message_text(message, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]]))
+            except:
+                context.bot.send_message(chat_id=user_id, text=message, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]]))
+        else:
+            context.bot.send_message(chat_id=user_id, text=message, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]]))
+    finally:
+        session.close()
 
 def handle_copy_ref_link(update: Update, context: CallbackContext):
-    """Максимально простая заглушка"""
+    """Функция для отправки реферального кода без форматирования"""
     query = update.callback_query
-    query.answer("Код скопирован!")
+    query.answer("Код готов к использованию!")
     
-    # Простой хак - просто отправить новое сообщение вместо редактирования текущего
+    callback_data = query.data
+    ref_code = callback_data.replace("copy_ref_link", "").strip("_")
+    
+    user_id = update.effective_user.id
+    
+    # Просто отправляем код без форматирования
     context.bot.send_message(
-        chat_id=update.effective_user.id,
-        text="Ваш реферальный код: 3ROCO71M",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]])
+        chat_id=user_id,
+        text=f"Ваш реферальный код: {ref_code}\n\nПросто поделитесь этим кодом с друзьями.",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("Назад", callback_data="invite_friend")
+        ]])
     )
 
 def show_referral_stats(update: Update, context: CallbackContext):
-    """Максимально простая заглушка"""
+    """Просто перенаправляет на invite_friend"""
     query = update.callback_query
     query.answer()
     
-    # Используем тот же примитивный подход
-    context.bot.send_message(
-        chat_id=update.effective_user.id,
-        text="Ваш реферальный код: 3ROCO71M",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Назад", callback_data="back_to_menu")]])
-    )
+    # Перенаправляем на основную функцию реферальной программы
+    invite_friend(update, context)
 
 def handle_show_subscription_options(update: Update, context: CallbackContext):
     """
@@ -3748,19 +3705,10 @@ def handle_show_subscription_options(update: Update, context: CallbackContext):
     
     # Показываем варианты подписки с возможностью выбрать "Подумаю"
     # Передаем user_id для генерации правильных ссылок с Telegram ID
-    try:
-        query.edit_message_text(
-            text="Варианты WILLWAY подписки:",
-            reply_markup=get_subscription_keyboard(user_id)
-        )
-    except Exception as e:
-        logger.error(f"Ошибка при редактировании сообщения для вариантов подписки: {str(e)}")
-        # В случае ошибки отправляем новое сообщение вместо редактирования
-        context.bot.send_message(
-            chat_id=user_id,
-            text="Варианты WILLWAY подписки:",
-            reply_markup=get_subscription_keyboard(user_id)
-        )
+    query.edit_message_text(
+        text="Варианты WILLWAY подписки:",
+        reply_markup=get_subscription_keyboard(user_id)
+    )
 
 def forward_to_health_assistant(update: Update, context: CallbackContext):
     """

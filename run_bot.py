@@ -11,6 +11,9 @@ import sys
 import threading
 from flask import Flask
 from env_var import setup_env
+from dotenv import load_dotenv
+from bot.handlers import main
+from database.migrate import add_cancellation_columns, migrate, migrate_blogger_referrals
 
 # Устанавливаем переменные окружения
 setup_env()
@@ -38,6 +41,42 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# Загрузка переменных окружения
+load_dotenv()
+
+# Проверка наличия всех необходимых переменных окружения
+required_env_vars = [
+    "TELEGRAM_TOKEN",
+    "DATABASE_URL"
+]
+
+missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+
+if missing_vars:
+    logger.error(f"Отсутствуют следующие переменные окружения: {', '.join(missing_vars)}")
+    sys.exit(1)
+else:
+    logger.info("Все необходимые переменные окружения найдены")
+
+# Выполнение миграций базы данных
+try:
+    add_cancellation_columns()
+    logger.info("Миграция базы данных для добавления колонок отмены подписки выполнена")
+except Exception as e:
+    logger.error(f"Ошибка при выполнении миграции базы данных: {e}")
+
+# Миграция базы данных
+if migrate():
+    logger.info("Миграция базы данных для добавления колонок отмены подписки выполнена")
+else:
+    logger.warning("Ошибка при миграции базы данных")
+
+# Выполняем миграцию для базы данных блогеров
+if migrate_blogger_referrals():
+    logger.info("Миграция базы данных блогеров для добавления колонок комиссий выполнена")
+else:
+    logger.warning("Ошибка при миграции базы данных блогеров")
 
 def check_environment():
     """Проверяет наличие всех необходимых переменных окружения"""

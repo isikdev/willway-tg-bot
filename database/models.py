@@ -63,6 +63,11 @@ class User(db.Model):
     subscription_doubt_response = Column(String(100), nullable=True)  # Ответ пользователя на сомнение
     subscription_doubt_feedback = Column(Text, nullable=True)  # Обратная связь пользователя после отказа
     
+    # Данные об отмене подписки
+    cancellation_reason_1 = Column(Text, nullable=True)  # Первая причина отмены
+    cancellation_reason_2 = Column(Text, nullable=True)  # Вторая причина отмены
+    cancellation_date = Column(DateTime, nullable=True)  # Дата начала процесса отмены
+    
     # Реферальные данные
     referral_code = Column(String(20), nullable=True)
     referred_by = Column(String(20), nullable=True)
@@ -197,11 +202,14 @@ class Blogger(db.Model):
     __tablename__ = 'bloggers'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(100), nullable=False)
+    name = Column(String(255), nullable=False)
     telegram_id = Column(String(50), nullable=True)
-    email = Column(String(100), nullable=True)
+    email = Column(String(255), nullable=True)
     access_key = Column(String(50), unique=True, nullable=False, default=generate_access_key)
-    created_at = Column(DateTime, default=datetime.now)
+    join_date = Column(DateTime, default=datetime.now)  # Переименовано из created_at
+    total_earned = Column(Float, default=0.0)
+    total_referrals = Column(Integer, default=0)
+    total_conversions = Column(Integer, default=0)
     is_active = Column(Boolean, default=True)
 
     # Отношения

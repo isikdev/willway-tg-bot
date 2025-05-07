@@ -47,6 +47,11 @@ def create_app():
     app.register_blueprint(payment_bp)
     logger.info("Зарегистрированы маршруты для платежей")
     
+    # Регистрируем маршруты для отмены подписки
+    from web.subscription_cancel_routes import subscription_cancel_bp
+    app.register_blueprint(subscription_cancel_bp)
+    logger.info("Зарегистрированы маршруты для отмены подписки")
+    
     # Маршрут для отдачи JS-скрипта для страницы тарифов
     @app.route('/static/js/tilda-tracker.js')
     def serve_tilda_tracker():
@@ -66,6 +71,14 @@ def create_app():
         bot_username = os.getenv('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')
         js_script = f"window.BOT_USERNAME = '{bot_username}';\n" + response.get_data(as_text=True)
         response.set_data(js_script)
+        return response
+    
+    # Маршрут для отдачи JS-скрипта для страницы отмены подписки
+    @app.route('/static/js/cancel-subscription.js')
+    def serve_cancel_subscription_js():
+        response = send_from_directory(os.path.join(app.root_path, 'static/js'), 'cancel_subscription.js')
+        response.headers['Content-Type'] = 'application/javascript'
+        response.headers['Access-Control-Allow-Origin'] = '*'
         return response
     
     # Маршрут для проверки работы сервера

@@ -56,20 +56,10 @@ RESULT_CB = "result_doubt"
 BACK_TO_PLANS_CB = "back_to_plans"
 
 def get_subscription_keyboard(user_id=None):
-    """Клавиатура с вариантами подписки
-    
-    Args:
-        user_id: ID пользователя в Telegram для генерации ссылки оплаты
-    
-    Returns:
-        InlineKeyboardMarkup: Клавиатура с кнопками вариантов подписки
-    """
     if user_id:
-        # Генерируем ссылки с Telegram ID пользователя
         payment_url = payment_helper.generate_payment_url(user_id)
         logger.info(f"Сгенерирована ссылка на оплату для пользователя {user_id}: {payment_url}")
     else:
-        # Если ID не передан, используем стандартную ссылку
         payment_url = "https://willway.pro/payment"
         logger.warning("ID пользователя не передан, используется стандартная ссылка без параметров")
     
@@ -78,7 +68,6 @@ def get_subscription_keyboard(user_id=None):
         [InlineKeyboardButton("1 год | 13.333 руб (- 30%) + тренер", url=payment_url)],
     ]
     
-    # Читаем конфигурацию для получения URL отзывов
     config = get_bot_config()
     reviews_url = config.get('reviews_channel_url', 'https://t.me/willway_reviews')
     
@@ -87,7 +76,6 @@ def get_subscription_keyboard(user_id=None):
         [InlineKeyboardButton("Подумаю", callback_data=f"{DOUBT_CB}")]
     ])
     
-    # Логирование для отладки
     logger.info(f"Создана клавиатура подписки: кнопка 'Подумаю' имеет callback_data={DOUBT_CB}")
     logger.info(f"Полная клавиатура: {keyboard}")
     

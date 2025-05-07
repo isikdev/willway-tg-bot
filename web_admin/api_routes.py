@@ -6,8 +6,149 @@ from datetime import datetime, timedelta
 import secrets
 import re
 from functools import wraps
+import sqlite3
+import os
+import json
+import time
+import traceback
 
 api_bp = Blueprint('api', __name__)
+
+# Определяем путь к БД блогеров
+BLOGGERS_DB_PATH = os.path.join(os.getcwd(), 'willway_bloggers.db')
+
+# Вспомогательная функция для получения соединения с базой данных блогеров
+def get_bloggers_db_connection():
+    """Устанавливает соединение с БД блогеров"""
+    try:
+        # Используем прямой путь к файлу willway_bloggers.db
+        db_path = os.path.join(os.getcwd(), 'willway_bloggers.db')
+        print(f"Попытка подключения к БД: {db_path}")
+        
+        # Проверяем, существует ли файл базы данных
+        db_exists = os.path.exists(db_path)
+        if not db_exists:
+            print("ОШИБКА: База данных не найдена")
+            # Создаем базу данных и таблицы
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # Создаем таблицу bloggers
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS bloggers (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT,
+                    telegram_id TEXT,
+                    access_key TEXT UNIQUE,
+                    registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Создаем таблицу blogger_referrals
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS blogger_referrals (
+                    id INTEGER PRIMARY KEY,
+                    blogger_id INTEGER,
+                    user_id INTEGER,
+                    date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    purchase_price REAL DEFAULT 0,
+                    conversion_date TIMESTAMP,
+                    commission REAL DEFAULT 0,
+                    status TEXT DEFAULT 'pending',
+                    FOREIGN KEY (blogger_id) REFERENCES bloggers (id)
+                )
+            ''')
+            
+            conn.commit()
+            print("База данных и таблицы созданы")
+            return conn
+        
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        
+        # Проверяем наличие необходимых таблиц
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND (name='bloggers' OR name='blogger_referrals')")
+        tables = cursor.fetchall()
+        table_names = [table['name'] for table in tables]
+        
+        if 'bloggers' not in table_names or 'blogger_referrals' not in table_names:
+            print("ОШИБКА: В базе данных отсутствуют необходимые таблицы")
+            # Создаем отсутствующие таблицы
+            if 'bloggers' not in table_names:
+                cursor.execute('''
+                    CREATE TABLE bloggers (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT,
+                        telegram_id TEXT,
+                        access_key TEXT UNIQUE,
+                        registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+            
+            if 'blogger_referrals' not in table_names:
+                cursor.execute('''
+                    CREATE TABLE blogger_referrals (
+                        id INTEGER PRIMARY KEY,
+                        blogger_id INTEGER,
+                        user_id INTEGER,
+                        date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        purchase_price REAL DEFAULT 0,
+                        conversion_date TIMESTAMP,
+                        commission REAL DEFAULT 0,
+                        status TEXT DEFAULT 'pending',
+                        FOREIGN KEY (blogger_id) REFERENCES bloggers (id)
+                    )
+                ''')
+            
+            conn.commit()
+            print("Отсутствующие таблицы созданы")
+        
+        print("Подключение к БД успешно установлено")
+        return conn
+    except Exception as e:
+        print(f"КРИТИЧЕСКАЯ ОШИБКА при подключении к БД: {str(e)}")
+        # Если мы не можем подключиться к БД, генерируем исключение
+        raise ConnectionError(f"Не удалось подключиться к базе данных: {str(e)}")
+
+# Вспомогательная функция для проверки блогера по ключу доступа
+def verify_blogger_by_key(access_key, blogger_id=None):
+    """
+    Проверяет существование блогера по ключу доступа и, опционально, по ID.
+    Возвращает данные блогера или None, если блогер не найден.
+    """
+    print(f"Проверка блогера: key={access_key}, id={blogger_id}")
+    
+    try:
+        conn = get_bloggers_db_connection()
+        cursor = conn.cursor()
+        
+        if blogger_id:
+            # Если указан ID блогера, проверяем совпадение и ID, и ключа
+            cursor.execute(
+                "SELECT * FROM bloggers WHERE access_key = ? AND id = ?", 
+                (access_key, blogger_id)
+            )
+        else:
+            # Иначе проверяем только по ключу
+            cursor.execute("SELECT * FROM bloggers WHERE access_key = ?", (access_key,))
+        
+        blogger = cursor.fetchone()
+        conn.close()
+        
+        if blogger:
+            blogger_dict = dict(blogger)
+            print(f"Блогер найден: id={blogger_dict.get('id')}")
+            return blogger_dict  # Преобразуем Row в dict
+        
+        print(f"Блогер не найден для ключа {access_key}")
+        return None
+    except Exception as e:
+        print(f"Ошибка при проверке блогера: {str(e)}")
+        if 'conn' in locals():
+            conn.close()
+    return None
 
 # Декоратор для проверки авторизации
 def login_required(f):
@@ -21,7 +162,6 @@ def login_required(f):
 
 @api_bp.route('/blogger/verify-key', methods=['POST'])
 def verify_blogger_key():
-    """Проверка ключа доступа блогера"""
     data = request.get_json()
     
     if not data or 'key' not in data:
@@ -29,7 +169,6 @@ def verify_blogger_key():
     
     access_key = data['key']
     
-    # Используем get_session вместо прямого запроса к модели
     db_session = get_session()
     try:
         blogger = db_session.query(Blogger).filter_by(access_key=access_key).first()
@@ -50,136 +189,249 @@ def verify_blogger_key():
 
 @api_bp.route('/blogger/stats', methods=['GET'])
 def get_blogger_stats():
-    """Получение статистики блогера"""
-    blogger_id = request.args.get('id')
-    access_key = request.args.get('key')
-    
-    if not access_key:
-        return jsonify({"success": False, "error": "Не указан ключ доступа"}), 400
-    
-    db_session = get_session()
+    """
+    Получение статистики блогера (количество рефералов, конверсий, заработок).
+    Параметры:
+    - key или id: ключ доступа или идентификатор блогера
+    """
     try:
-        # Проверка ключа доступа
-        if blogger_id:
-        blogger = db_session.query(Blogger).filter_by(id=blogger_id, access_key=access_key).first()
-        else:
-            blogger = db_session.query(Blogger).filter_by(access_key=access_key).first()
-            
+        print(f"Получен запрос статистики блогера: ID={request.args.get('id')}, key={request.args.get('key')}, nocache={request.args.get('nocache')}")
+        # Получаем ключ из параметров запроса
+        access_key = request.args.get('key') or request.args.get('id')
+        
+        if not access_key:
+            print("Ошибка: отсутствует ключ доступа")
+            return jsonify({
+                'status': 'error',
+                'message': 'Отсутствует ключ доступа'
+            }), 400
+        
+        # Получаем данные блогера по ключу
+        blogger = verify_blogger_by_key(access_key)
+        
         if not blogger:
-            return jsonify({"success": False, "error": "Нет доступа"}), 401
+            print(f"Ошибка: блогер не найден по ключу {access_key}")
+            return jsonify({
+                'status': 'error',
+                'message': 'Неверный ключ доступа'
+            }), 401
         
-        # Получаем общее количество переходов
-        total_referrals = db_session.query(BloggerReferral).filter_by(blogger_id=blogger.id).count()
+        blogger_id = blogger['id']
+        print(f"Получение статистики для блогера {blogger_id}")
         
-        # Получаем общее количество конверсий
-        total_conversions = db_session.query(BloggerReferral).filter_by(blogger_id=blogger.id, converted=True).count()
+        # Подключаемся к БД
+        conn = get_bloggers_db_connection()
+        cursor = conn.cursor()
         
-        # Получаем общую сумму заработка
-        total_earnings = db_session.query(func.sum(BloggerReferral.commission_amount))\
-            .filter_by(blogger_id=blogger.id, converted=True)\
-            .scalar() or 0
+        # Получаем количество рефералов
+        cursor.execute(
+            "SELECT COUNT(*) as total FROM blogger_referrals WHERE blogger_id = ?", 
+            (blogger_id,)
+        )
+        total_referrals = cursor.fetchone()['total']
+        print(f"Всего рефералов: {total_referrals}")
+        
+        # Получаем количество конверсий
+        cursor.execute(
+            "SELECT COUNT(*) as total FROM blogger_referrals WHERE blogger_id = ? AND (converted = 1 OR status = 'converted')", 
+            (blogger_id,)
+        )
+        total_conversions = cursor.fetchone()['total']
+        print(f"Всего конверсий: {total_conversions}")
+        
+        # Получаем данные для графика рефералов по дням (за последние 30 дней)
+        thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        
+        cursor.execute("""
+            SELECT date(created_at) as day, COUNT(*) as count 
+            FROM blogger_referrals 
+            WHERE blogger_id = ? AND date(created_at) >= ? 
+            GROUP BY day 
+            ORDER BY day
+        """, (blogger_id, thirty_days_ago))
+        
+        daily_referrals = cursor.fetchall()
+        referrals_chart_data = {
+            'labels': [row['day'] for row in daily_referrals],
+            'data': [row['count'] for row in daily_referrals]
+        }
+        print(f"Данные для графика рефералов: {len(daily_referrals)} дней")
+        
+        # Получаем данные для графика конверсий по дням (за последние 30 дней)
+        cursor.execute("""
+            SELECT date(conversion_date) as day, COUNT(*) as count 
+            FROM blogger_referrals 
+            WHERE blogger_id = ? AND (converted = 1 OR status = 'converted') AND date(conversion_date) >= ? 
+            GROUP BY day 
+            ORDER BY day
+        """, (blogger_id, thirty_days_ago))
+        
+        daily_conversions = cursor.fetchall()
+        conversions_chart_data = {
+            'labels': [row['day'] for row in daily_conversions],
+            'data': [row['count'] for row in daily_conversions]
+        }
+        print(f"Данные для графика конверсий: {len(daily_conversions)} дней")
+            
+        # Получаем данные для графика заработка по дням (за последние 30 дней)
+        cursor.execute("""
+            SELECT date(conversion_date) as day, SUM(commission) as amount 
+            FROM blogger_referrals 
+            WHERE blogger_id = ? AND (converted = 1 OR status = 'converted') AND date(conversion_date) >= ? 
+            GROUP BY day 
+            ORDER BY day
+        """, (blogger_id, thirty_days_ago))
+        
+        daily_earnings = cursor.fetchall()
+        earnings_chart_data = {
+            'labels': [row['day'] for row in daily_earnings],
+            'data': [row['amount'] for row in daily_earnings]
+        }
+        print(f"Данные для графика заработка: {len(daily_earnings)} дней")
+        
+        # Получаем общий заработок
+        cursor.execute(
+            "SELECT SUM(commission) as total FROM blogger_referrals WHERE blogger_id = ? AND (converted = 1 OR status = 'converted')", 
+            (blogger_id,)
+        )
+        total_earnings = cursor.fetchone()['total'] or 0
+        print(f"Общий заработок: {total_earnings}")
         
         # Формируем реферальную ссылку
         bot_username = current_app.config.get('TELEGRAM_BOT_USERNAME', 'willwayapp_bot')
-        referral_link = f"https://t.me/{bot_username}?start=ref_{blogger.access_key}"
+        referral_link = f"https://t.me/{bot_username}?start=ref_{blogger['access_key']}"
         
-        # Получаем статистику по дням за последние 30 дней
-        end_date = datetime.now().date()
-        start_date = end_date - timedelta(days=29)
-        
-        # Запрос для получения данных по дням
-        daily_data = []
-        current_date = start_date
-        
-        while current_date <= end_date:
-            # Начало и конец текущего дня
-            day_start = datetime.combine(current_date, datetime.min.time())
-            day_end = datetime.combine(current_date, datetime.max.time())
-            
-            # Количество переходов за день
-            day_referrals = db_session.query(BloggerReferral).filter(
-                BloggerReferral.blogger_id == blogger.id,
-                BloggerReferral.created_at >= day_start,
-                BloggerReferral.created_at <= day_end
-            ).count()
-            
-            # Количество конверсий за день
-            day_conversions = db_session.query(BloggerReferral).filter(
-                BloggerReferral.blogger_id == blogger.id,
-                BloggerReferral.converted == True,
-                BloggerReferral.created_at >= day_start,
-                BloggerReferral.created_at <= day_end
-            ).count()
-            
-            # Добавляем данные в список
-            daily_data.append({
-                "date": current_date.strftime("%d.%m"),
-                "referrals": day_referrals,
-                "conversions": day_conversions
-            })
-            
-            # Переходим к следующему дню
-            current_date += timedelta(days=1)
+        conn.close()
         
         return jsonify({
-            "success": True,
-            "blogger_id": blogger.id,
-            "blogger_name": blogger.name,
-            "created_at": blogger.created_at.strftime("%Y-%m-%d"),
-            "total_referrals": total_referrals,
-            "total_conversions": total_conversions,
-            "total_earnings": total_earnings,
-            "referral_link": referral_link,
-            "daily_stats": daily_data
+            'status': 'success',
+            'data': {
+                'name': blogger['name'],
+                'blogger_id': blogger['id'],
+                'join_date': blogger.get('join_date') or blogger.get('created_at'),
+                'total_referrals': total_referrals,
+                'total_conversions': total_conversions,
+                'total_earnings': total_earnings,
+                'referral_link': referral_link,  # Добавляем реферальную ссылку в ответ
+                'referrals_chart': referrals_chart_data,
+                'conversions_chart': conversions_chart_data,
+                'earnings_chart': earnings_chart_data
+            }
         })
     except Exception as e:
-        return jsonify({"success": False, "error": f"Ошибка при получении статистики: {str(e)}"}), 500
-    finally:
-        db_session.close()
+        print(f"КРИТИЧЕСКАЯ ОШИБКА в get_blogger_stats: {str(e)}")
+        traceback.print_exc()  # Печатаем полный стек ошибки
+        return jsonify({
+            'status': 'error',
+            'message': f'Внутренняя ошибка сервера: {str(e)}'
+        }), 500
 
 @api_bp.route('/blogger/referrals', methods=['GET'])
 def get_blogger_referrals():
-    """Получение списка рефералов блогера"""
-    blogger_id = request.args.get('id')
-    access_key = request.args.get('key')
-    offset = int(request.args.get('offset', 0))
-    limit = int(request.args.get('limit', 10))
-    
-    if not blogger_id or not access_key:
-        return jsonify({"success": False, "error": "Не указаны параметры доступа"}), 400
-    
-    db_session = get_session()
+    """
+    Получение списка рефералов блогера.
+    Параметры:
+    - key или id: ключ доступа или идентификатор блогера
+    - page: номер страницы (по умолчанию 1)
+    - per_page: количество записей на страницу (по умолчанию 20)
+    """
     try:
-        # Проверка ключа доступа
-        blogger = db_session.query(Blogger).filter_by(id=blogger_id, access_key=access_key).first()
+        # Получаем ключ из параметров запроса
+        access_key = request.args.get('key') or request.args.get('id')
+        
+        if not access_key:
+            print("Ошибка: отсутствует ключ доступа")
+            return jsonify({
+                'status': 'error',
+                'message': 'Отсутствует ключ доступа'
+            }), 400
+    
+        # Получаем данные блогера по ключу
+        blogger = verify_blogger_by_key(access_key)
+        
         if not blogger:
-            return jsonify({"success": False, "error": "Нет доступа"}), 401
+            print(f"Ошибка: блогер не найден по ключу {access_key}")
+            return jsonify({
+                'status': 'error',
+                'message': 'Неверный ключ доступа'
+            }), 401
         
-        # Получаем рефералы, отсортированные по дате (от новых к старым)
-        referrals = db_session.query(BloggerReferral)\
-            .filter_by(blogger_id=blogger.id)\
-            .order_by(desc(BloggerReferral.created_at))\
-            .offset(offset).limit(limit).all()
+        blogger_id = blogger['id']
         
-        referrals_data = []
-        for referral in referrals:
-            referral_data = {
-                "id": referral.id,
-                "source": referral.source,
-                "created_at": referral.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-                "converted": referral.converted,
-                "commission_amount": referral.commission_amount if referral.converted else None
-            }
-            referrals_data.append(referral_data)
+        # Пагинация
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 20))
+        
+        print(f"Получение списка рефералов для блогера {blogger_id}, страница {page}, записей на страницу {per_page}")
+        
+        # Подключаемся к БД
+        conn = get_bloggers_db_connection()
+        cursor = conn.cursor()
+        
+        # Получаем общее количество рефералов
+        cursor.execute(
+            "SELECT COUNT(*) as total FROM blogger_referrals WHERE blogger_id = ?", 
+            (blogger_id,)
+        )
+        total_referrals = cursor.fetchone()['total']
+        print(f"Всего рефералов: {total_referrals}")
+        
+        # Рассчитываем смещение для пагинации
+        offset = (page - 1) * per_page
+        
+        # Получаем список рефералов с пагинацией
+        cursor.execute("""
+            SELECT * FROM blogger_referrals 
+            WHERE blogger_id = ? 
+            ORDER BY created_at DESC 
+            LIMIT ? OFFSET ?
+        """, (blogger_id, per_page, offset))
+        
+        referrals_data = cursor.fetchall()
+        print(f"Получено {len(referrals_data)} записей")
+        
+        # Преобразуем данные для JSON
+        referrals = []
+        for referral in referrals_data:
+            referral_dict = dict(referral)
+            
+            # Преобразуем даты в строки для JSON
+            if 'created_at' in referral_dict and referral_dict['created_at']:
+                referral_dict['date_added'] = str(referral_dict['created_at'])
+                
+            if 'conversion_date' in referral_dict and referral_dict['conversion_date']:
+                referral_dict['conversion_date'] = str(referral_dict['conversion_date'])
+                
+            referrals.append(referral_dict)
+        
+        conn.close()
+        
+        # Рассчитываем метаданные пагинации
+        total_pages = (total_referrals + per_page - 1) // per_page  # Округление вверх
+        has_next = page < total_pages
+        has_prev = page > 1
         
         return jsonify({
-            "success": True,
-            "referrals": referrals_data
+            'status': 'success',
+            'data': {
+                'referrals': referrals,
+                'meta': {
+                    'total': total_referrals,
+                    'page': page,
+                    'per_page': per_page,
+                    'total_pages': total_pages,
+                    'has_next': has_next,
+                    'has_prev': has_prev
+                }
+            }
         })
     except Exception as e:
-        return jsonify({"success": False, "error": f"Ошибка при получении рефералов: {str(e)}"}), 500
-    finally:
-        db_session.close()
+        print(f"КРИТИЧЕСКАЯ ОШИБКА в get_blogger_referrals: {str(e)}")
+        traceback.print_exc()  # Печатаем полный стек ошибки
+        return jsonify({
+            'status': 'error',
+            'message': f'Внутренняя ошибка сервера: {str(e)}'
+        }), 500
 
 @api_bp.route('/blogger/generate-key', methods=['POST'])
 def generate_blogger_key():
@@ -454,14 +706,13 @@ def get_detailed_blogger_stats(blogger_id):
                         BloggerReferral.created_at <= day_end
                     ).count()
                     
-                    # Сумма комиссионных за день
-                    day_earnings = db_session.query(func.sum(BloggerReferral.commission_amount))\
-                        .filter(
-                            BloggerReferral.blogger_id == blogger_id,
-                            BloggerReferral.converted == True,
-                            BloggerReferral.created_at >= day_start,
-                            BloggerReferral.created_at <= day_end
-                        ).scalar() or 0
+                    # Получаем заработок за день
+                    day_earnings = db_session.query(func.sum(BloggerReferral.commission_amount)).filter(
+                        BloggerReferral.blogger_id == blogger_id,
+                        BloggerReferral.converted == True,
+                        BloggerReferral.created_at >= day_start,
+                        BloggerReferral.created_at <= day_end
+                    ).scalar() or 0
                     
                     daily_data.append({
                         "date": current_date.strftime("%Y-%m-%d"),
@@ -481,7 +732,7 @@ def get_detailed_blogger_stats(blogger_id):
             "blogger": {
                 "id": blogger.id,
                 "name": blogger.name,
-                "created_at": blogger.created_at.strftime("%Y-%m-%d"),
+                "join_date": blogger.join_date.strftime("%Y-%m-%d"),
                 "is_active": blogger.is_active
             },
             "stats": {
@@ -499,11 +750,11 @@ def get_detailed_blogger_stats(blogger_id):
 @api_bp.route('/blogger/referral-link', methods=['GET'])
 def get_blogger_referral_link():
     """Получение реферальной ссылки блогера"""
-    blogger_id = request.args.get('id')
-    access_key = request.args.get('key')
+    blogger_id = request.args.get('id') or request.args.get('blogger_id')
+    access_key = request.args.get('key') or request.args.get('access_key')
     
     if not blogger_id or not access_key:
-        return jsonify({"success": False, "error": "Не указаны параметры доступа"}), 400
+        return jsonify({"success": False, "error": "Не указаны параметры id и key или blogger_id и access_key"}), 400
     
     db_session = get_session()
     try:
@@ -529,11 +780,11 @@ def get_blogger_referral_link():
 @api_bp.route('/blogger/earnings', methods=['GET'])
 def get_blogger_earnings():
     """Получение информации о заработке блогера"""
-    blogger_id = request.args.get('id')
-    access_key = request.args.get('key')
+    blogger_id = request.args.get('id') or request.args.get('blogger_id')
+    access_key = request.args.get('key') or request.args.get('access_key')
     
     if not blogger_id or not access_key:
-        return jsonify({"success": False, "error": "Не указаны параметры доступа"}), 400
+        return jsonify({"success": False, "error": "Не указаны параметры id и key или blogger_id и access_key"}), 400
     
     db_session = get_session()
     try:
@@ -606,71 +857,483 @@ def ping():
 @api_bp.route('/bot/track-conversion', methods=['POST'])
 def track_blogger_conversion():
     """Отслеживает конверсию (покупку) от пользователя, пришедшего по реферальной ссылке блогера"""
-    data = request.json
-    api_key = data.get('api_key')
-    
-    # Проверка API ключа
-    if api_key != current_app.config.get('API_KEY'):
-        return jsonify({"success": False, "error": "Неверный API ключ"}), 401
-    
-    ref_code = data.get('ref_code')
-    user_id = data.get('user_id')
-    amount = float(data.get('amount', 0))
-    purchase_id = data.get('purchase_id')
-    
-    if not ref_code or not user_id or amount <= 0:
-        return jsonify({"success": False, "error": "Отсутствуют обязательные параметры"}), 400
-    
-    db_session = get_session()
     try:
-        # Извлекаем access_key из ref_code
-        if ref_code.startswith('ref_'):
-            access_key = ref_code.replace('ref_', '')
-        else:
-            access_key = ref_code
-            
-        # Находим блогера
-        blogger = db_session.query(Blogger).filter_by(access_key=access_key).first()
-        if not blogger:
-            return jsonify({"success": False, "error": "Блогер не найден"}), 404
-            
-        # Ищем соответствующий реферальный переход
-        referral = db_session.query(BloggerReferral).filter_by(
-            blogger_id=blogger.id,
-            source=f"telegram_start_{user_id}",
-            converted=False
-        ).first()
+        data = request.json
+        print(f"[КОНВЕРСИЯ] Получены данные: {data}")
         
-        # Если переход не найден, создаем новую запись
-        if not referral:
-            referral = BloggerReferral(
-                blogger_id=blogger.id,
-                source=f"telegram_start_{user_id}"
-            )
-            db_session.add(referral)
+        # Сохраняем все данные запроса для диагностики
+        log_filename = "conversion_requests.log"
+        with open(log_filename, "a", encoding="utf-8") as log_file:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_file.write(f"[{timestamp}] Получен запрос: {json.dumps(data, ensure_ascii=False)}\n")
+        
+        api_key = data.get('api_key')
+        
+        # Проверка API ключа
+        if api_key != current_app.config.get('API_KEY'):
+            print(f"[ОШИБКА КОНВЕРСИИ] Неверный API ключ: {api_key}")
+            return jsonify({"success": False, "error": "Неверный API ключ"}), 401
+        
+        ref_code = data.get('ref_code')
+        user_id = data.get('user_id')
+        amount = float(data.get('amount', 0))
+        purchase_id = data.get('purchase_id')
+        
+        print(f"[КОНВЕРСИЯ] Параметры: ref_code={ref_code}, user_id={user_id}, amount={amount}, purchase_id={purchase_id}")
+        
+        if not ref_code:
+            print(f"[ОШИБКА КОНВЕРСИИ] Отсутствует ref_code")
+            return jsonify({"success": False, "error": "Отсутствует параметр ref_code"}), 400
             
-        # Вычисляем комиссию (20% от суммы)
+        if not user_id:
+            print(f"[ОШИБКА КОНВЕРСИИ] Отсутствует user_id")
+            return jsonify({"success": False, "error": "Отсутствует параметр user_id"}), 400
+            
+        if amount <= 0:
+            print(f"[ОШИБКА КОНВЕРСИИ] Некорректная сумма: {amount}")
+            return jsonify({"success": False, "error": f"Некорректная сумма: {amount}"}), 400
+        
+        print(f"[КОНВЕРСИЯ] Получен запрос на регистрацию конверсии: ref_code={ref_code}, user_id={user_id}, amount={amount}")
+        
+        # Подключаемся к БД
+        try:
+            conn = get_bloggers_db_connection()
+            cursor = conn.cursor()
+            print(f"[КОНВЕРСИЯ] Успешное подключение к БД")
+        except Exception as db_err:
+            print(f"[ОШИБКА КОНВЕРСИИ] Ошибка подключения к БД: {str(db_err)}")
+            return jsonify({"success": False, "error": f"Ошибка подключения к БД: {str(db_err)}"}), 500
+        
+        try:
+            # Извлекаем access_key из ref_code
+            if ref_code.startswith('ref_'):
+                access_key = ref_code.replace('ref_', '')
+            else:
+                access_key = ref_code
+            
+            print(f"[КОНВЕРСИЯ] Извлечен access_key: {access_key}")
+                
+            # Находим блогера
+            cursor.execute("SELECT * FROM bloggers WHERE access_key = ?", (access_key,))
+            blogger = cursor.fetchone()
+            
+            if not blogger:
+                print(f"[ОШИБКА КОНВЕРСИИ] Блогер с ключом доступа {access_key} не найден")
+                return jsonify({"success": False, "error": "Блогер не найден"}), 404
+            
+            blogger_id = blogger['id']
+            print(f"[КОНВЕРСИЯ] Найден блогер: ID={blogger_id}, имя={blogger['name']}")
+                
+            # Ищем соответствующий реферальный переход
+            source_pattern = f"telegram_start_{user_id}"
+            cursor.execute("""
+                SELECT * FROM blogger_referrals 
+                WHERE (blogger_id = ? AND source LIKE ?) AND (converted = 0 OR converted IS NULL)
+                ORDER BY created_at DESC LIMIT 1
+            """, (blogger_id, f"%{source_pattern}%"))
+            
+            referral = cursor.fetchone()
+        
+            # Если переход не найден, создаем новую запись
+            if not referral:
+                print(f"[КОНВЕРСИЯ] Не найден переход для блогера {blogger_id} и пользователя {user_id}, создаем новый")
+                
+                # Получаем максимальный ID для генерации нового
+                cursor.execute("SELECT MAX(id) as max_id FROM blogger_referrals")
+                max_id_result = cursor.fetchone()
+                next_id = 1
+                if max_id_result and max_id_result['max_id'] is not None:
+                    next_id = max_id_result['max_id'] + 1
+                
+                # Готовим параметры для новой записи
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                referral_source = f"telegram_start_{user_id}"
+                
+                # Проверяем, какие колонки существуют в таблице
+                cursor.execute("PRAGMA table_info(blogger_referrals)")
+                columns = [col['name'] for col in cursor.fetchall()]
+                print(f"[КОНВЕРСИЯ] Колонки в таблице: {columns}")
+                
+                # Подготавливаем SQL-запрос на основе существующих колонок
+                insert_columns = ["id", "blogger_id", "source"]
+                insert_values = [next_id, blogger_id, referral_source]
+                
+                # Добавляем остальные поля, если они существуют
+                column_mapping = {
+                    "created_at": current_time,
+                    "user_id": user_id,
+                    "referral_date": current_time
+                }
+                
+                for col, val in column_mapping.items():
+                    if col in columns:
+                        insert_columns.append(col)
+                        insert_values.append(val)
+                
+                # Создаем запрос
+                placeholders = ", ".join(["?" for _ in insert_values])
+                columns_str = ", ".join(insert_columns)
+                
+                insert_query = f"INSERT INTO blogger_referrals ({columns_str}) VALUES ({placeholders})"
+                print(f"[КОНВЕРСИЯ] Вставка нового реферала: {insert_query}")
+                print(f"[КОНВЕРСИЯ] Значения: {insert_values}")
+                
+                cursor.execute(insert_query, insert_values)
+                conn.commit()
+                
+                # Получаем созданную запись
+                cursor.execute("SELECT * FROM blogger_referrals WHERE id = ?", (next_id,))
+                referral = cursor.fetchone()
+                print(f"[КОНВЕРСИЯ] Создан новый реферал: ID={next_id}")
+            else:
+                print(f"[КОНВЕРСИЯ] Найден существующий реферал: ID={referral['id']}")
+            
+            # Вычисляем комиссию (20% от суммы)
+            commission = amount * 0.2
+            print(f"[КОНВЕРСИЯ] Рассчитана комиссия: {commission} (20% от {amount})")
+            
+            # Определяем, какие поля нужно обновить
+            update_fields = []
+            update_values = []
+            
+            # Проверяем доступные поля для обновления
+            if 'converted' in referral.keys():
+                update_fields.append("converted = ?")
+                update_values.append(1)
+                
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+            field_mappings = {
+                "converted_at": current_time,
+                "conversion_date": current_time,
+                "commission": commission,
+                "commission_amount": commission,
+                "commission_earned": commission,
+                "status": "converted",
+                "subscription_amount": amount
+            }
+            
+            for field, value in field_mappings.items():
+                if field in referral.keys():
+                    update_fields.append(f"{field} = ?")
+                    update_values.append(value)
+        
+            # Добавляем информацию о покупке в источник
+            if purchase_id:
+                update_fields.append("source = ?")
+                current_source = referral['source'] if 'source' in referral.keys() else ""
+                new_source = f"{current_source}_purchase_{purchase_id}" if current_source else f"purchase_{purchase_id}"
+                update_values.append(new_source)
+                
+            # Подготавливаем и выполняем запрос на обновление
+            update_values.append(referral['id'])
+            update_query = f"UPDATE blogger_referrals SET {', '.join(update_fields)} WHERE id = ?"
+            
+            print(f"[КОНВЕРСИЯ] Обновление реферала: {update_query}")
+            print(f"[КОНВЕРСИЯ] Значения: {update_values}")
+            
+            cursor.execute(update_query, update_values)
+            conn.commit()
+            
+            # Обновляем общую статистику блогера
+            if 'total_earned' in blogger.keys() and 'total_conversions' in blogger.keys():
+                cursor.execute("""
+                    UPDATE bloggers 
+                    SET total_earned = total_earned + ?, total_conversions = total_conversions + 1
+                    WHERE id = ?
+                """, (commission, blogger_id))
+                conn.commit()
+                print(f"[КОНВЕРСИЯ] Обновлена статистика блогера: +{commission} к заработку, +1 к конверсиям")
+                
+            print(f"[КОНВЕРСИЯ] Конверсия успешно зарегистрирована для блогера {blogger_id}, комиссия: {commission}")
+        
+            return jsonify({
+                "success": True, 
+                "message": "Конверсия успешно зарегистрирована",
+                "commission": commission,
+                "blogger_id": blogger_id,
+                "referral_id": referral['id']
+            })
+        except Exception as e:
+            conn.rollback()
+            print(f"[ОШИБКА КОНВЕРСИИ] {str(e)}")
+            traceback.print_exc()
+            return jsonify({"success": False, "error": f"Ошибка при регистрации конверсии: {str(e)}"}), 500
+    except Exception as outer_e:
+        print(f"[КРИТИЧЕСКАЯ ОШИБКА КОНВЕРСИИ] {str(outer_e)}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": f"Критическая ошибка: {str(outer_e)}"}), 500
+
+@api_bp.route('/blogger_statistics/<key>')
+def get_blogger_statistics(key):
+    """Получение статистики блогера по ключу"""
+    try:
+        # Подключаемся к базе данных
+        conn = sqlite3.connect(BLOGGERS_DB_PATH)
+        cursor = conn.cursor()
+        
+        # Ищем блогера по ключу
+        cursor.execute("SELECT id, name FROM bloggers WHERE access_key = ?", (key,))
+        blogger = cursor.fetchone()
+        
+        if not blogger:
+            return jsonify({'success': False, 'error': 'Блогер не найден'}), 404
+        
+        blogger_id, blogger_name = blogger
+        
+        # Получаем статистику кликов по дням
+        # Проверяем структуру таблицы
+        cursor.execute("PRAGMA table_info(blogger_referrals)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        has_created_at = 'created_at' in columns
+        has_converted = 'converted' in columns
+        has_commission = 'commission_amount' in columns
+        
+        # Определяем поле даты
+        date_field = "created_at" if has_created_at else "referral_date"
+        
+        # Запрос на статистику кликов по дням
+        date_query = f"SELECT strftime('%Y-%m-%d', {date_field}) as day, COUNT(*) as clicks"
+        
+        # Добавляем статистику конверсий если доступно
+        if has_converted:
+            date_query += ", SUM(converted) as conversions"
+        
+        # Добавляем статистику по комиссиям если доступно
+        if has_commission:
+            date_query += ", SUM(commission_amount) as earnings"
+        
+        date_query += f" FROM blogger_referrals WHERE blogger_id = ? GROUP BY day ORDER BY day"
+        
+        cursor.execute(date_query, (blogger_id,))
+        daily_stats = cursor.fetchall()
+        
+        # Форматируем результаты
+        stats = []
+        column_names = ['date', 'clicks']
+        if has_converted:
+            column_names.append('conversions')
+        if has_commission:
+            column_names.append('earnings')
+            
+        for row in daily_stats:
+            stat_row = {}
+            for i, col_name in enumerate(column_names):
+                if col_name == 'earnings' and row[i] is not None:
+                    # Округляем комиссии до 2 знаков
+                    stat_row[col_name] = round(row[i], 2)
+                else:
+                    stat_row[col_name] = row[i]
+            stats.append(stat_row)
+        
+        # Получаем общую статистику
+        total_clicks = sum(item['clicks'] for item in stats)
+        total_conversions = sum(item.get('conversions', 0) or 0 for item in stats) if has_converted else 0
+        total_earnings = sum(item.get('earnings', 0) or 0 for item in stats) if has_commission else 0
+        
+        result = {
+            'success': True,
+            'blogger': {
+                'id': blogger_id,
+                'name': blogger_name,
+                'key': key
+            },
+            'statistics': {
+                'total_clicks': total_clicks,
+                'daily': stats
+            }
+        }
+        
+        # Добавляем конверсии если доступны
+        if has_converted:
+            result['statistics']['total_conversions'] = total_conversions
+        
+        # Добавляем заработок если доступен
+        if has_commission:
+            result['statistics']['total_earnings'] = round(total_earnings, 2)
+        
+        conn.close()
+        return jsonify(result)
+    
+    except Exception as e:
+        print(f"Ошибка при получении статистики блогера: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500 
+
+# Добавим новый API-эндпоинт для ручного тестирования конверсий
+@api_bp.route('/blogger/test-conversion', methods=['POST'])
+@login_required
+def test_blogger_conversion():
+    """
+    Создает тестовую конверсию для указанного блогера.
+    Данный метод предназначен только для тестирования и администрирования.
+    """
+    try:
+        data = request.json or {}
+        
+        # Проверяем наличие необходимых данных
+        blogger_id = data.get('blogger_id')
+        if not blogger_id:
+            return jsonify({"success": False, "error": "Не указан ID блогера"}), 400
+            
+        amount = float(data.get('amount', 1000))  # По умолчанию 1000 рублей
+        
+        # Создаем тестовый ID пользователя
+        test_user_id = f"test_user_{int(time.time())}"
+        
+        # Подключаемся к БД
+        conn = get_bloggers_db_connection()
+        cursor = conn.cursor()
+        
+        # Проверяем существование блогера
+        cursor.execute("SELECT * FROM bloggers WHERE id = ?", (blogger_id,))
+        blogger = cursor.fetchone()
+        
+        if not blogger:
+            conn.close()
+            return jsonify({"success": False, "error": "Блогер не найден"}), 404
+        
+        # Генерируем уникальный ID для новой записи
+        cursor.execute("SELECT MAX(id) as max_id FROM blogger_referrals")
+        max_id = cursor.fetchone()['max_id'] or 0
+        next_id = max_id + 1
+        
+        # Создаем текущую дату/время
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Создаем запись о реферале
+        source = f"test_conversion_{test_user_id}"
+        cursor.execute("""
+            INSERT INTO blogger_referrals 
+            (id, blogger_id, user_id, created_at, referral_date, source)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (next_id, blogger_id, test_user_id, current_time, current_time, source))
+        
+        # Рассчитываем комиссию (20% от суммы)
         commission = amount * 0.2
         
-        # Обновляем информацию о конверсии
-        referral.converted = True
-        referral.converted_at = datetime.now()
-        referral.commission_amount = commission
+        # Сразу же конвертируем реферал
+        cursor.execute("""
+            UPDATE blogger_referrals 
+            SET converted = 1, 
+                converted_at = ?, 
+                conversion_date = ?,
+                commission_amount = ?,
+                commission = ?,
+                status = 'converted',
+                subscription_amount = ?
+            WHERE id = ?
+        """, (current_time, current_time, commission, commission, amount, next_id))
         
-        # Добавляем информацию о покупке
-        if purchase_id:
-            referral.source = f"{referral.source}_purchase_{purchase_id}"
-            
-        db_session.commit()
+        # Пробуем обновить счетчики блогера
+        try:
+            cursor.execute("""
+                UPDATE bloggers 
+                SET total_earned = COALESCE(total_earned, 0) + ?, 
+                    total_conversions = COALESCE(total_conversions, 0) + 1,
+                    total_referrals = COALESCE(total_referrals, 0) + 1
+                WHERE id = ?
+            """, (commission, blogger_id))
+        except sqlite3.OperationalError as e:
+            print(f"Ошибка при обновлении счетчиков блогера: {str(e)}")
+            # Продолжаем выполнение, даже если счетчики не обновились
+        
+        conn.commit()
+        
+        # Получаем обновленную запись
+        cursor.execute("SELECT * FROM blogger_referrals WHERE id = ?", (next_id,))
+        referral = cursor.fetchone()
+        
+        # Получаем обновленные данные блогера
+        cursor.execute("SELECT * FROM bloggers WHERE id = ?", (blogger_id,))
+        updated_blogger = cursor.fetchone()
+        
+        conn.close()
         
         return jsonify({
-            "success": True, 
-            "message": "Конверсия успешно зарегистрирована",
-            "commission": commission,
-            "blogger_id": blogger.id
+            "success": True,
+            "message": "Тестовая конверсия успешно создана",
+            "referral": dict(referral),
+            "blogger": {
+                "id": updated_blogger['id'],
+                "name": updated_blogger['name'],
+                "total_earned": updated_blogger.get('total_earned'),
+                "total_conversions": updated_blogger.get('total_conversions'),
+                "total_referrals": updated_blogger.get('total_referrals')
+            }
         })
     except Exception as e:
-        db_session.rollback()
-        return jsonify({"success": False, "error": f"Ошибка при регистрации конверсии: {str(e)}"}), 500
-    finally:
-        db_session.close() 
+        print(f"Ошибка при создании тестовой конверсии: {str(e)}")
+        traceback.print_exc()
+        
+        if 'conn' in locals():
+            conn.rollback()
+            conn.close()
+            
+        return jsonify({"success": False, "error": f"Ошибка при создании тестовой конверсии: {str(e)}"}), 500
+
+# Добавим API для проверки состояния БД блогеров
+@api_bp.route('/blogger/db-status', methods=['GET'])
+@login_required
+def check_bloggers_db_status():
+    """Проверяет состояние базы данных блогеров"""
+    try:
+        # Проверяем наличие файла БД
+        if not os.path.exists(BLOGGERS_DB_PATH):
+            return jsonify({
+                "success": False,
+                "error": "База данных не найдена",
+                "path": BLOGGERS_DB_PATH
+            }), 404
+            
+        # Подключаемся к БД
+        conn = get_bloggers_db_connection()
+        cursor = conn.cursor()
+        
+        # Получаем список таблиц
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = [row['name'] for row in cursor.fetchall()]
+        
+        db_info = {
+            "success": True,
+            "path": BLOGGERS_DB_PATH,
+            "size": os.path.getsize(BLOGGERS_DB_PATH),
+            "tables": {}
+        }
+        
+        # Анализируем каждую таблицу
+        for table in tables:
+            # Получаем структуру таблицы
+            cursor.execute(f"PRAGMA table_info({table})")
+            columns = [dict(row) for row in cursor.fetchall()]
+            
+            # Получаем количество записей
+            cursor.execute(f"SELECT COUNT(*) as count FROM {table}")
+            record_count = cursor.fetchone()['count']
+            
+            # Получаем пример данных (1 запись)
+            cursor.execute(f"SELECT * FROM {table} LIMIT 1")
+            sample_row = cursor.fetchone()
+            sample_data = dict(sample_row) if sample_row else {}
+            
+            db_info["tables"][table] = {
+                "columns": [col['name'] for col in columns],
+                "record_count": record_count,
+                "sample_data": sample_data
+            }
+            
+        conn.close()
+        return jsonify(db_info)
+    except Exception as e:
+        print(f"Ошибка при проверке БД блогеров: {str(e)}")
+        traceback.print_exc()
+        
+        if 'conn' in locals():
+            conn.close()
+            
+        return jsonify({
+            "success": False, 
+            "error": f"Ошибка при проверке БД: {str(e)}"
+        }), 500 
