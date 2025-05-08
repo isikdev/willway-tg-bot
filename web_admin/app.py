@@ -1197,6 +1197,25 @@ def set_telegram_webhook():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route('/api/telegram-bot/delete-webhook', methods=['GET'])
+@login_required
+def delete_telegram_webhook():
+    token = app.config.get('TELEGRAM_BOT_TOKEN')
+    if not token:
+        return jsonify({"success": False, "error": "Токен бота не настроен"}), 400
+    
+    try:
+        api_url = f"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=true"
+        response = requests.get(api_url)
+        result = response.json()
+        
+        if result.get("ok"):
+            return jsonify({"success": True, "result": result})
+        else:
+            return jsonify({"success": False, "error": result.get("description")}), 400
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route('/api/blogger/verify-key', methods=['POST'])
 def api_blogger_verify_key():
     """Аутентификация блогера по ключу доступа"""

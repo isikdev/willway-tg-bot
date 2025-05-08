@@ -136,6 +136,14 @@ def run_telegram_bot():
                     logger.info("Webhook успешно удален перед запуском бота")
                 else:
                     logger.warning(f"Ошибка при удалении webhook: {response.text}")
+                
+                # Добавляем еще одну попытку удаления webhook с параметром drop_pending_updates
+                webhook_url = f"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=true"
+                response = requests.get(webhook_url)
+                if response.status_code == 200 and response.json().get("ok"):
+                    logger.info("Webhook успешно удален с параметром drop_pending_updates")
+                else:
+                    logger.warning(f"Ошибка при удалении webhook с drop_pending_updates: {response.text}")
         except Exception as e:
             logger.error(f"Ошибка при попытке удалить webhook: {e}")
         

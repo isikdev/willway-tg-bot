@@ -2830,7 +2830,17 @@ def main():
         else:
             # Запуск в режиме polling (локальный режим)
             logger.info("[STARTUP] Запуск бота в режиме polling")
-            updater.start_polling()
+            
+            # Дополнительная проверка и удаление webhook перед запуском polling
+            try:
+                # Удаляем webhook еще раз непосредственно перед запуском polling
+                bot = updater.bot
+                bot.delete_webhook(drop_pending_updates=True)
+                logger.info("[STARTUP] Webhook удален непосредственно через API бота")
+            except Exception as e:
+                logger.error(f"[STARTUP] Ошибка при удалении webhook через API бота: {e}")
+                
+            updater.start_polling(drop_pending_updates=True)
         
         logger.info("[STARTUP] Бот запущен!")
         
