@@ -51,10 +51,13 @@
                             d="M5.75 2a.75.75 0 01.75.75V4h7V2.75a.75.75 0 011.5 0V4h.25A2.75 2.75 0 0118 6.75v8.5A2.75 2.75 0 0115.25 18H4.75A2.75 2.75 0 012 15.25v-8.5A2.75 2.75 0 014.75 4H5V2.75A.75.75 0 015.75 2zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75z"
                             clip-rule="evenodd" />
                     </svg>
-                    Дата регистрации: {{ blogger.join_date.strftime('%d.%m.%Y')
-                    if blogger.join_date and not isinstance(blogger.join_date,
-                    str) else blogger.join_date if blogger.join_date else
-                    'Нет данных' }}
+                    Дата регистрации:
+                    {% if blogger.join_date %}
+                    {{ blogger.join_date.strftime('%d.%m.%Y') if
+                    blogger.join_date is not string else blogger.join_date }}
+                    {% else %}
+                    Нет данных
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -193,17 +196,19 @@
                             </td>
                             <td
                                 class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                {% if referral.referral_date %}
                                 {{
                                 referral.referral_date.strftime('%d.%m.%Y %H:%M')
-                                if referral.referral_date and not
-                                isinstance(referral.referral_date, str) else
-                                referral.referral_date if referral.referral_date
-                                else
+                                if referral.referral_date is not string else
+                                referral.referral_date }}
+                                {% elif referral.created_at %}
+                                {{
                                 referral.created_at.strftime('%d.%m.%Y %H:%M')
-                                if referral.created_at and not
-                                isinstance(referral.created_at, str) else
-                                referral.created_at if referral.created_at else
-                                'Нет данных' }}
+                                if referral.created_at is not string else
+                                referral.created_at }}
+                                {% else %}
+                                Нет данных
+                                {% endif %}
                             </td>
                             <td
                                 class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -219,8 +224,7 @@
                                 <span class="text-xs text-gray-500">
                                     {{
                                     referral.conversion_date.strftime('%d.%m.%Y')
-                                    if referral.conversion_date and not
-                                    isinstance(referral.conversion_date, str)
+                                    if referral.conversion_date is not string
                                     else referral.conversion_date }}
                                 </span>
                                 {% endif %}

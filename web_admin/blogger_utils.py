@@ -384,35 +384,64 @@ def get_total_stats():
     conn = get_blogger_db_connection()
     cursor = conn.cursor()
     
-    # Проверяем структуру таблицы blogger_referrals
-    cursor.execute("PRAGMA table_info(blogger_referrals)")
-    columns = [column[1] for column in cursor.fetchall()]
-    
-    # Общее количество реферральных переходов
-    cursor.execute("SELECT COUNT(*) FROM blogger_referrals")
-    total_referrals = cursor.fetchone()[0] or 0
-    
-    # Общее количество конверсий
-    if 'converted' in columns:
-        cursor.execute("SELECT COUNT(*) FROM blogger_referrals WHERE converted = 1")
-    else:
-        cursor.execute("SELECT 0")
-    total_conversions = cursor.fetchone()[0] or 0
-    
-    # Общий заработок
-    if 'commission_amount' in columns:
-        cursor.execute("SELECT SUM(commission_amount) FROM blogger_referrals")
-    else:
-        cursor.execute("SELECT 0")
-    total_earnings = cursor.fetchone()[0] or 0
-    
-    conn.close()
-    
-    return {
-        'total_referrals': total_referrals,
-        'total_conversions': total_conversions,
-        'total_earnings': total_earnings
-    }
+    try:
+        # Проверяем структуру таблицы blogger_referrals
+        cursor.execute("PRAGMA table_info(blogger_referrals)")
+        columns = [column[1] for column in cursor.fetchall()]
+        
+        # Общее количество реферральных переходов
+        cursor.execute("SELECT COUNT(*) FROM blogger_referrals")
+        total_referrals = cursor.fetchone()[0] or 0
+        
+        # Общее количество конверсий
+        if 'converted' in columns:
+            cursor.execute("SELECT COUNT(*) FROM blogger_referrals WHERE converted = 1")
+            total_conversions = cursor.fetchone()[0] or 0
+        else:
+            total_conversions = 0
+        
+        # Общий заработок
+        if 'commission_amount' in columns:
+            cursor.execute("SELECT SUM(commission_amount) FROM blogger_referrals")
+            total_earnings = cursor.fetchone()[0] or 0
+        else:
+            total_earnings = 0
+        
+        # Если нет данных в таблице blogger_referrals, 
+        # попробуем суммировать статистику из таблицы bloggers
+        if total_referrals == 0:
+            cursor.execute("PRAGMA table_info(bloggers)")
+            blogger_columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'total_referrals' in blogger_columns:
+                cursor.execute("SELECT SUM(total_referrals) FROM bloggers")
+                total_referrals = cursor.fetchone()[0] or 0
+            
+            if 'total_conversions' in blogger_columns:
+                cursor.execute("SELECT SUM(total_conversions) FROM bloggers")
+                total_conversions = cursor.fetchone()[0] or 0
+            
+            if 'total_earned' in blogger_columns:
+                cursor.execute("SELECT SUM(total_earned) FROM bloggers")
+                total_earnings = cursor.fetchone()[0] or 0
+        
+        # Логируем результаты для отладки
+        print(f"Статистика: переходы={total_referrals}, конверсии={total_conversions}, заработок={total_earnings}")
+        
+        return {
+            'total_referrals': total_referrals,
+            'total_conversions': total_conversions,
+            'total_earnings': total_earnings
+        }
+    except Exception as e:
+        print(f"Ошибка при получении общей статистики: {str(e)}")
+        return {
+            'total_referrals': 0,
+            'total_conversions': 0,
+            'total_earnings': 0
+        }
+    finally:
+        conn.close()
 
 def process_referral_reward(user_id, referrer_id=None):
 

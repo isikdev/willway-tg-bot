@@ -457,7 +457,17 @@ def bot_settings():
     
     # Получаем список администраторов для отображения в шаблоне
     db_session = get_session()
-    admins = db_session.query(AdminUser).all()
+    try:
+        # Попытаемся получить всех администраторов с учетом поля is_active
+        admins = db_session.query(AdminUser).all()
+    except Exception as e:
+        # Если произошла ошибка, выполним запрос без поля is_active
+        app.logger.error(f"Ошибка при запросе администраторов: {str(e)}")
+        # Используем sql-запрос без колонки is_active
+        from sqlalchemy import text
+        result = db_session.execute(text("SELECT id, username, password, added_at FROM admin_users"))
+        admins = [AdminUser(id=row[0], username=row[1], password=row[2], added_at=row[3]) for row in result]
+        app.logger.info(f"Получено {len(admins)} администраторов через прямой SQL")
     
     # Получаем список обычных пользователей для добавления в админы
     admin_usernames = [admin.username for admin in admins]
@@ -1443,12 +1453,60 @@ def toggle_blogger_status_route():
             conn.close()
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route('/api/blogger/delete', methods=['POST'])
+@login_required
+def delete_blogger_route():
+    """Удалить блогера из базы данных"""
+    data = request.get_json()
+    
+    if not data or 'blogger_id' not in data:
+        return jsonify({"success": False, "error": "Неверные параметры запроса"}), 400
+    
+    blogger_id = data['blogger_id']
+    
+    try:
+        # Подключаемся к базе willway_bloggers.db
+        conn = get_blogger_db_connection()
+        cursor = conn.cursor()
+        
+        # Проверяем существование блогера
+        cursor.execute("SELECT id FROM bloggers WHERE id = ?", (blogger_id,))
+        blogger = cursor.fetchone()
+        
+        if not blogger:
+            conn.close()
+            return jsonify({"success": False, "error": "Блогер не найден"}), 404
+        
+        # Удаляем блогера из базы данных
+        cursor.execute("DELETE FROM bloggers WHERE id = ?", (blogger_id,))
+        
+        # Также удаляем связанные записи из таблицы stats, если она существует
+        try:
+            cursor.execute("DELETE FROM stats WHERE blogger_id = ?", (blogger_id,))
+        except:
+            # Если таблицы stats нет или произошла ошибка, продолжаем выполнение
+            pass
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({"success": True})
+        
+    except Exception as e:
+        if 'conn' in locals():
+            conn.close()
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route('/api/admin/stats')
 @login_required
 def admin_stats():
     """Получение статистики для админ-панели"""
     try:
         stats = get_total_stats()
+        
+        # Для отладки давайте выведем статистику в логи
+        app.logger.info(f"Общая статистика блогеров: {stats}")
+        
         return jsonify({
             "success": True,
             "total_bloggers": len(get_all_bloggers()),
@@ -1456,6 +1514,7 @@ def admin_stats():
             "total_earnings": stats['total_earnings']
         })
     except Exception as e:
+        app.logger.error(f"Ошибка при получении статистики: {str(e)}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/blogger/stats')

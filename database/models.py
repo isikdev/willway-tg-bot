@@ -165,7 +165,7 @@ class AdminUser(db.Model):
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(50), unique=True, nullable=False)
     password = Column(String(100), nullable=False)
-    is_active = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True, server_default="1")
     added_at = Column(DateTime, default=datetime.now)
 
     def __repr__(self):

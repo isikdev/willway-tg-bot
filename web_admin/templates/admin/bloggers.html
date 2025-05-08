@@ -5,14 +5,14 @@
 {% block page_title %}Блогеры{% endblock %}
 
 {% block content %}
-<div class="container px-6 mx-auto">
+<div class="container mx-auto mt-5">
     <!-- Карточка для создания нового блогера -->
     <div class="bg-white rounded-lg shadow-md mb-6 overflow-hidden">
-        <div class="bg-gray-50 px-4 py-3 border-b">
+        <div class="bg-gray-50 px-6 py-4 border-b">
             <h3 class="text-lg font-semibold text-gray-700">Создать нового
                 блогера</h3>
         </div>
-        <div class="p-4">
+        <div class="p-6">
             <form action="{{ url_for('create_blogger') }}" method="post">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -127,7 +127,7 @@
 
     <!-- Таблица блогеров -->
     <div class="bg-white rounded-lg shadow-md overflow-hidden mt-6">
-        <div class="bg-gray-50 px-4 py-3 border-b">
+        <div class="bg-gray-50 px-6 py-4 border-b">
             <h3 class="text-lg font-semibold text-gray-700">Список блогеров</h3>
         </div>
         <div class="overflow-x-auto">
@@ -242,10 +242,15 @@
                         <td
                             class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                             <button
-                                onclick="toggleBloggerStatus({{ blogger.id }}, {% if blogger.is_active %}false{% else %}true{% endif %})"
-                                class="text-{% if blogger.is_active %}red{% else %}green{% endif %}-600 hover:text-{% if blogger.is_active %}red{% else %}green{% endif %}-900">
                                 {% if blogger.is_active %}
-                                Деактивировать
+                                onclick="deleteBlogger({{ blogger.id }})"
+                                class="text-red-600 hover:text-red-900"
+                                {% else %}
+                                onclick="toggleBloggerStatus({{ blogger.id }}, true)"
+                                class="text-green-600 hover:text-green-900"
+                                {% endif %}>
+                                {% if blogger.is_active %}
+                                Удалить
                                 {% else %}
                                 Активировать
                                 {% endif %}
@@ -357,6 +362,32 @@
                     window.location.reload();
                 } else {
                     alert(data.error || 'Произошла ошибка');
+                }
+            })
+            .catch(error => {
+                console.error('Ошибка:', error);
+                alert('Произошла ошибка при выполнении запроса');
+            });
+        }
+    }
+    
+    function deleteBlogger(bloggerId) {
+        if (confirm('Вы уверены, что хотите удалить блогера? Это действие нельзя отменить.')) {
+            fetch('/api/blogger/delete', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    blogger_id: bloggerId
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    alert(data.error || 'Произошла ошибка при удалении блогера');
                 }
             })
             .catch(error => {
