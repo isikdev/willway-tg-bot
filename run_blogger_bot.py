@@ -1,10 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""
-Точка входа для запуска бота блогеров
-"""
-
 import os
 import logging
 import sys
@@ -14,7 +10,6 @@ from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton, WebAppI
 from telegram.ext import Updater, CommandHandler, CallbackContext, CallbackQueryHandler
 from dotenv import load_dotenv
 
-# Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
@@ -26,11 +21,9 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Загрузка переменных окружения
 load_dotenv()
 
 def get_bot_config():
-    """Загружает конфигурацию бота"""
     try:
         config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'blogger_bot_config.json')
         if os.path.exists(config_path):
@@ -46,21 +39,17 @@ def get_bot_config():
         return {}
 
 def apply_bot_config(bot, config):
-    """Применяет настройки из конфигурации к боту"""
     logger.info("Применение настроек бота блогеров...")
     
     try:
-        # Настройка команд бота через API Telegram
         if 'commands' in config and isinstance(config['commands'], dict):
             bot_commands = []
             for cmd, desc in config.get('commands', {}).items():
-                # Убираем символ "/" если он есть в начале команды
                 cmd_name = cmd[1:] if cmd.startswith('/') else cmd
                 bot_commands.append((cmd_name, desc))
             
             if bot_commands:
                 try:
-                    # Устанавливаем команды
                     bot.set_my_commands(bot_commands)
                     logger.info(f"Обновлены команды бота блогеров: {bot_commands}")
                 except Exception as e:

@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-from bot.handlers import get_bot_config
+from bot.handlers import get_bot_config, get_main_keyboard
 from database.models import get_session, User, Payment, ReferralUse, ReferralCode
 from flask import Blueprint, request, jsonify, render_template, redirect, url_for, session, abort, current_app
 import logging
@@ -9,7 +9,7 @@ import os
 import sys
 from functools import wraps
 import colorlog
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 import time
 import re
 import api_patch
@@ -311,117 +311,120 @@ def payment_success():
             paid_at=datetime.now()
         )
         
-        # Если это платеж за подписку, обновляем статус подписки
-        if 'subscription_' in payment_description:
-            # Получаем тариф из описания (например, "subscription_premium_month")
-            plan_parts = payment_description.split('_')
-            if len(plan_parts) >= 2:
-                plan_type = plan_parts[1]  # premium, standard и т.д.
-                
-                # Определяем длительность подписки
-                duration = 30  # по умолчанию 30 дней
-                if len(plan_parts) >= 3:
-                    if plan_parts[2] == 'month':
-                        duration = 30
-                    elif plan_parts[2] == 'quarter':
-                        duration = 90
-                    elif plan_parts[2] == 'half_year':
-                        duration = 180
-                    elif plan_parts[2] == 'year':
-                        duration = 365
-                
-                # Обновляем дату окончания подписки
-                if user.subscription_expires and user.subscription_expires > datetime.now():
-                    # Если подписка еще активна, продлеваем ее
-                    user.subscription_expires = user.subscription_expires + timedelta(days=duration)
-                else:
-                    # Если подписка неактивна, устанавливаем новую дату окончания
-                    user.subscription_expires = datetime.now() + timedelta(days=duration)
-
-                # Устанавливаем подписку и её тип
-                user.is_subscribed = True
-                user.subscription_type = plan_type
-                logging.info(f"Обновлен статус подписки для пользователя {user_id}: is_subscribed=True, type={plan_type}, до {user.subscription_expires}")
+        # Обновляем статус подписки
+        # По умолчанию 30 дней
+        duration = 30
         
-        # Если это разовый платеж, обрабатываем его соответственно
-        if 'one_time_' in payment_description:
-            logging.info(f"Обработка разового платежа для пользователя {user_id}: {payment_description}")
-            # Здесь можно добавить логику для разовых платежей, например, открытие доступа к контенту
+        # Проверяем тип подписки по описанию
+        if 'year' in payment_description.lower():
+            duration = 365
+            new_payment.subscription_type = 'yearly'
+        elif 'quarter' in payment_description.lower():
+            duration = 90
+            new_payment.subscription_type = 'quarter'
+        elif 'half_year' in payment_description.lower():
+            duration = 180
+            new_payment.subscription_type = 'half_year'
+        
+        # Обновляем дату окончания подписки
+        if user.subscription_expires and user.subscription_expires > datetime.now():
+            # Если подписка еще активна, продлеваем ее
+            user.subscription_expires = user.subscription_expires + timedelta(days=duration)
+        else:
+            # Если подписка неактивна, устанавливаем новую дату окончания
+            user.subscription_expires = datetime.now() + timedelta(days=duration)
+        
+        # Устанавливаем флаг активной подписки и тип подписки
+        user.is_subscribed = True
+        user.subscription_type = new_payment.subscription_type
         
         # Сохраняем платеж и изменения пользователя
         session.add(new_payment)
         session.commit()
-
-        # Регистрируем конверсию для блогера, если пользователь пришел по реферальной ссылке
-        username = user.username if hasattr(user, 'username') else None
         
+        # Обработка реферальной ссылки
         try:
-            conversion_result = register_conversion(user_id, amount, username)
-            if conversion_result:
-                logging.info(f"Успешно зарегистрирована конверсия для блогера от пользователя {user_id}")
-            else:
-                logging.info(f"Пользователь {user_id} не пришел по реферальной ссылке блогера или реферал не найден")
-                
-                # Проверяем и обрабатываем реферальный бонус для обычного пользователя
-                try:
-                    logging.info(f"Проверяем и обрабатываем реферальный бонус для пользователя {user.id}")
-                    
-                    # Сначала обновляем статус реферальной ссылки, чтобы отметить покупку
-                    try:
-                        # Находим запись об использовании реферальной ссылки
-                        refUse = session.query(ReferralUse).filter(
-                            ReferralUse.user_id == user.id,
-                            ReferralUse.subscription_purchased == False
-                        ).first()
-                        
-                        if refUse:
-                            logging.info(f"Найдена запись об использовании реферальной ссылки ID={refUse.id}, обновляем статус покупки")
-                            refUse.subscription_purchased = True
-                            refUse.purchase_date = datetime.now()
-                            session.commit()
-                            logging.info(f"Статус покупки обновлен для реферальной записи ID={refUse.id}")
-                    except Exception as update_error:
-                        logging.error(f"Ошибка при обновлении статуса покупки: {str(update_error)}")
-                    
-                    # Затем обрабатываем бонус реферера
-                    from web_admin.blogger_utils import process_referral_reward
-                    logging.info(f"Функция process_referral_reward успешно импортирована")
-                    
-                    reward_result = process_referral_reward(user.id)
-                    logging.info(f"Результат process_referral_reward: {reward_result}")
-                    
-                    if reward_result:
-                        logging.info(f"Успешно начислен реферальный бонус за пользователя {user_id}")
-                    else:
-                        logging.info(f"Не найден реферер для пользователя {user_id} или бонус уже начислен")
-                except Exception as reward_error:
-                    logging.error(f"Ошибка при обработке реферального бонуса: {str(reward_error)}")
-                    import traceback
-                    logging.error(traceback.format_exc())
-                
+            # Находим запись об использовании реферальной ссылки
+            referralUse = session.query(ReferralUse).filter(
+                ReferralUse.user_id == user.id
+            ).first()
+            
+            if referralUse:
+                referralUse.subscription_purchased = True
+                referralUse.purchase_date = datetime.now()
+                session.commit()
         except Exception as e:
-            logging.error(f"Ошибка при регистрации конверсии: {str(e)}")
-            import traceback
-            logging.error(traceback.format_exc())
+            logging.error(f"Ошибка при обработке реферальной ссылки: {str(e)}")
         
-        if session:
-            session.close()
-        
-        # Отправляем уведомление в Телеграм
+        # Отправляем уведомление в Telegram
         try:
+            # Отправляем сообщение об успешной оплате с информацией о подписке
             send_payment_notification(user_id, amount, payment_description)
+            
+            # Отправляем ReplyKeyboard напрямую для обеспечения гарантированного отображения клавиатуры
+            try:
+                payment_logger.info(f"Payment Success: Отправка ReplyKeyboard напрямую пользователю {user_id}")
+                
+                # Пытаемся получить токен бота и инициализировать бота
+                token = get_bot_token()
+                if not token:
+                    payment_logger.error(f"Payment Success: Не удалось получить токен бота для отправки ReplyKeyboard")
+                    raise Exception("Не удалось получить токен бота")
+                
+                # Инициализируем бота или используем существующего
+                bot_instance = bot if bot else Bot(token=token)
+                
+                # Пытаемся получить ReplyKeyboard из bot/handlers.py
+                try:
+                    # Используем импортированную функцию get_main_keyboard
+                    reply_keyboard = get_main_keyboard()
+                    payment_logger.info(f"Payment Success: ReplyKeyboard успешно получена")
+                except Exception as keyboard_error:
+                    payment_logger.error(f"Payment Success: Ошибка при получении ReplyKeyboard: {str(keyboard_error)}")
+                    # Если не удалось получить клавиатуру из функции, создаем её вручную
+                    reply_keyboard = ReplyKeyboardMarkup([
+                        ["Health ассистент", "Управление подпиской"],
+                        ["Связь с поддержкой", "Пригласить друга"]
+                    ], resize_keyboard=True)
+                    payment_logger.info(f"Payment Success: Создана резервная ReplyKeyboard")
+                
+                # Отправляем сообщение с ReplyKeyboard
+                keyboard_result = bot_instance.send_message(
+                    chat_id=user_id,
+                    text="Главное меню:",
+                    reply_markup=reply_keyboard
+                )
+                payment_logger.info(f"Payment Success: ReplyKeyboard успешно отправлена напрямую, результат: {keyboard_result}")
+            except Exception as reply_keyboard_error:
+                payment_logger.error(f"Payment Success: Ошибка при отправке ReplyKeyboard напрямую: {str(reply_keyboard_error)}")
+                import traceback
+                payment_logger.error(f"Payment Success: Подробная информация об ошибке: {traceback.format_exc()}")
         except Exception as e:
             logging.error(f"Ошибка при отправке уведомления о платеже: {str(e)}")
         
-        return render_template('payment_success.html')
-    
+        # Рендерим страницу успешной оплаты
+        try:
+            bot_username = os.getenv('TELEGRAM_BOT_USERNAME', 'willway_bot')
+            return render_template(
+                'payment_success.html',
+                amount=amount,
+                bot_username=bot_username,
+                user_id=user_id
+            )
+        except Exception as e:
+            logging.error(f"Ошибка при рендеринге страницы успешной оплаты: {str(e)}")
+            abort(500)
+            
     except Exception as e:
-        logging.error(f"Ошибка при обработке успешного платежа: {str(e)}")
+        logging.error(f"Ошибка при обработке успешной оплаты: {str(e)}")
         import traceback
         logging.error(traceback.format_exc())
         if session:
             session.close()
-        abort(500, "Произошла ошибка при обработке платежа")
+        abort(500)
+    finally:
+        if session:
+            session.close()
 
 
 @payment_bp.route('/api/v1/payment/success', methods=['POST'])
@@ -595,7 +598,8 @@ def api_payment_success():
 
         # Отправляем уведомление в Телеграм
         try:
-            send_success_message(user_id)
+            # Отправляем сообщение об успешной оплате с информацией о подписке
+            send_payment_notification(user_id, amount, subscription_type)
         except Exception as e:
             logging.error(f"Ошибка при отправке уведомления о платеже: {str(e)}")
         
@@ -640,6 +644,7 @@ def send_success_message(user_id):
     else:
         payment_logger.info(f"\033[93mБот уже инициализирован\033[0m")
 
+    # Основное сообщение об успешной оплате и приветствие
     message = (
         "Спасибо за доверие. Ты сделал правильный выбор! "
         "Мы постараемся сделать все, чтобы помочь тебе прийти к своей цели.\n\n"
@@ -663,13 +668,15 @@ def send_success_message(user_id):
     payment_logger.info(f"\033[93mПолучен URL канала: {channel_url}\033[0m")
 
     try:
+        # Создаем InlineKeyboard с кнопками
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton(text="Доступ к приложению", web_app={
-                                  "url": "https://willway.pro/app"})],
+                                  "url": "https://willway.pro/"})],
             [InlineKeyboardButton(text="Вступить в канал", url=channel_url)]
         ])
         payment_logger.info(f"\033[93mКлавиатура создана успешно\033[0m")
 
+        # Отправляем сообщение с InlineKeyboard
         payment_logger.info(
             f"\033[93mОтправка сообщения пользователю {user_id}\033[0m")
         try:
@@ -680,6 +687,37 @@ def send_success_message(user_id):
             )
             payment_logger.info(
                 f"\033[92mСообщение успешно отправлено, результат: {result}\033[0m")
+            
+            try:
+                # Теперь отправляем ReplyKeyboard кнопки
+                payment_logger.info(f"\033[93mОтправка ReplyKeyboard пользователю {user_id}\033[0m")
+                
+                # Пытаемся получить ReplyKeyboard из bot/handlers.py
+                try:
+                    # Используем импортированную функцию get_main_keyboard
+                    reply_keyboard = get_main_keyboard()
+                    payment_logger.info(f"\033[93mReplyKeyboard успешно получена\033[0m")
+                except Exception as keyboard_error:
+                    payment_logger.error(f"\033[91mОшибка при получении ReplyKeyboard: {str(keyboard_error)}\033[0m")
+                    # Если не удалось получить клавиатуру из функции, создаем её вручную
+                    reply_keyboard = ReplyKeyboardMarkup([
+                        ["Health ассистент", "Управление подпиской"],
+                        ["Связь с поддержкой", "Пригласить друга"]
+                    ], resize_keyboard=True)
+                    payment_logger.info(f"\033[93mСоздана резервная ReplyKeyboard\033[0m")
+                
+                # Отправляем сообщение с ReplyKeyboard
+                keyboard_result = bot.send_message(
+                    chat_id=user_id,
+                    text="Меню доступно ниже ⬇️",
+                    reply_markup=reply_keyboard
+                )
+                payment_logger.info(f"\033[92mReplyKeyboard успешно отправлена, результат: {keyboard_result}\033[0m")
+            except Exception as reply_keyboard_error:
+                payment_logger.error(f"\033[91mОшибка при отправке ReplyKeyboard: {str(reply_keyboard_error)}\033[0m")
+                import traceback
+                payment_logger.error(f"\033[91mПодробная информация об ошибке ReplyKeyboard: {traceback.format_exc()}\033[0m")
+            
             return True
         except Exception as send_error:
             payment_logger.error(
@@ -1160,77 +1198,166 @@ def handle_preflight():
 
 def send_payment_notification(user_id, amount, payment_description):
     """
-    Отправляет уведомление в Telegram о успешной оплате
+    Отправляет пользователю уведомление об успешной оплате
+    
+    :param user_id: ID пользователя в Telegram
+    :param amount: Сумма платежа
+    :param payment_description: Описание платежа
+    :return: True в случае успеха, False в случае ошибки
     """
-    payment_logger.info(f"Отправка уведомления об успешной оплате пользователю {user_id}")
+    payment_logger.info(f"Отправка уведомления об оплате пользователю {user_id}")
     
     global bot
     if not bot:
-        payment_logger.error("Ошибка: переменная bot не инициализирована")
         try:
             token = get_bot_token()
             if not token:
                 payment_logger.error("Не удалось получить токен бота")
                 return False
-            
-            payment_logger.info("Инициализация бота с полученным токеном")
+                
             bot = Bot(token=token)
-            payment_logger.info("Бот успешно инициализирован для отправки уведомления об оплате")
-        except Exception as bot_init_error:
-            payment_logger.error(f"Не удалось инициализировать бота: {str(bot_init_error)}")
+            payment_logger.info("Бот инициализирован для отправки уведомления об оплате")
+        except Exception as e:
+            payment_logger.error(f"Ошибка при инициализации бота: {str(e)}")
             return False
     
-    # Получаем тип подписки из описания платежа
-    subscription_type = "Стандартная"
-    if "premium" in payment_description.lower():
-        subscription_type = "Премиум"
-    elif "vip" in payment_description.lower():
-        subscription_type = "VIP"
-    
-    # Получаем продолжительность подписки
-    duration = "30 дней"
-    if "quarter" in payment_description.lower():
-        duration = "90 дней"
+    # Определяем тип подписки и длительность
+    subscription_type = "monthly"
+    if "year" in payment_description.lower():
+        subscription_type = "yearly"
+        duration = 365
+    elif "quarter" in payment_description.lower():
+        subscription_type = "quarter"
+        duration = 90
     elif "half_year" in payment_description.lower():
-        duration = "180 дней"
-    elif "year" in payment_description.lower():
-        duration = "365 дней"
+        subscription_type = "half_year"
+        duration = 180
+    else:
+        duration = 30
     
-    # Форматируем сумму платежа
-    formatted_amount = f"{amount:.2f}".replace('.', ',')
+    # Отображаемый тип подписки
+    sub_type = "месячная"
+    if subscription_type == "yearly":
+        sub_type = "годовая"
+    elif subscription_type == "quarter":
+        sub_type = "квартальная"
+    elif subscription_type == "half_year":
+        sub_type = "полугодовая"
     
-    # Текст сообщения
-    message = (
-        f"✅ *Оплата успешно произведена!*\n\n"
-        f"Сумма: *{formatted_amount} руб.*\n"
-        f"Тип подписки: *{subscription_type}*\n"
-        f"Продолжительность: *{duration}*\n\n"
-        f"Благодарим за доверие! Ваша подписка активирована.\n"
-        f"Теперь Вам доступны все возможности сервиса WillWay."
+    # Получаем или вычисляем дату окончания подписки
+    try:
+        session = get_session()
+        user = session.query(User).filter(User.user_id == user_id).first()
+        
+        if user and user.subscription_expires:
+            expires_date = user.subscription_expires.strftime("%d.%m.%Y")
+            remaining_days = (user.subscription_expires - datetime.now()).days
+        else:
+            # Если нет данных о подписке, вычисляем на основе текущей даты
+            expires = datetime.now() + timedelta(days=duration)
+            expires_date = expires.strftime("%d.%m.%Y")
+            remaining_days = duration
+    except Exception as e:
+        payment_logger.error(f"Ошибка при получении данных о подписке: {str(e)}")
+        # Если произошла ошибка, используем приблизительные данные
+        expires = datetime.now() + timedelta(days=duration)
+        expires_date = expires.strftime("%d.%m.%Y")
+        remaining_days = duration
+    finally:
+        if 'session' in locals() and session:
+            session.close()
+    
+    # Сообщение о подписке (как в "Управление подпиской")
+    subscription_message = (
+        f"💎 *Информация о подписке*\n\n"
+        f"• Тип: {sub_type}\n"
+        f"• Активна до: {expires_date}\n"
+        f"• Осталось дней: {remaining_days}\n\n"
+        f"Для отмены подписки нажмите соответствующую кнопку ниже."
     )
     
-    # Создаем клавиатуру с кнопками
-    keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton(text="Перейти в приложение", web_app={"url": "https://willway.pro/app"})],
-        [InlineKeyboardButton(text="Настройки подписки", callback_data="subscription_settings")]
+    # Создаем клавиатуру для управления подпиской
+    subscription_keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Продлить подписку", callback_data="renew_subscription")],
+        [InlineKeyboardButton("Отменить подписку", callback_data="cancel_subscription")]
     ])
     
-    # Отправляем сообщение с клавиатурой
+    # Приветственное сообщение
+    welcome_message = (
+        "Спасибо за доверие. Ты сделал правильный выбор! "
+        "Мы постараемся сделать все, чтобы помочь тебе прийти к своей цели.\n\n"
+        "Давай введу тебя сразу в курс дела.\n\n"
+        "По кнопкам внизу ты можешь:\n"
+        "- получить доступ к приложению и личному кабинету, где тебя ждут твои программы,\n\n"
+        "- добавиться в канал с анонсами мероприятий, прямых эфиров и просто "
+        "полезной информацией о физическом и ментальном здоровье\n\n"
+        "По кнопке menu ты можешь:\n"
+        "- пообщаться с Health-ассистентом,\n"
+        "- подобрать программу питания, сделать разбор анализов\n"
+        "- управлять своей подпиской,\n"
+        "- связаться с поддержкой, задать вопрос тренеру/нутрициологу/психологу\n\n"
+        "- пригласить в наш сервис друга и получить бонусы, которыми можно оплатить "
+        "подписку или вывести себе на счет."
+    )
+    
+    # Создаем InlineKeyboard для приветственного сообщения
+    config = get_bot_config()
+    channel_url = config.get('channel_url', 'https://t.me/willway_channel')
+    welcome_keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(text="Доступ к приложению", web_app={"url": "https://willway.pro/"})],
+        [InlineKeyboardButton(text="Вступить в канал", url=channel_url)]
+    ])
+    
+    # Отправляем сообщения
     try:
-        result = bot.send_message(
+        # 1. Сначала отправляем информацию о подписке
+        result_subscription = bot.send_message(
             chat_id=user_id,
-            text=message,
+            text=subscription_message,
             parse_mode="Markdown",
-            reply_markup=keyboard
+            reply_markup=subscription_keyboard
         )
-        payment_logger.info(f"Сообщение об успешной оплате отправлено пользователю {user_id}")
+        payment_logger.info(f"Сообщение с информацией о подписке отправлено пользователю {user_id}")
         
-        # Отправляем успешное сообщение
-        send_success_message(user_id)
+        # 2. Затем отправляем приветственное сообщение
+        result_welcome = bot.send_message(
+            chat_id=user_id,
+            text=welcome_message,
+            reply_markup=welcome_keyboard
+        )
+        payment_logger.info(f"Приветственное сообщение отправлено пользователю {user_id}")
+        
+        # 3. Отправляем ReplyKeyboard кнопки напрямую
+        try:
+            payment_logger.info(f"Отправка ReplyKeyboard напрямую пользователю {user_id}")
+            
+            # Пытаемся получить ReplyKeyboard из bot/handlers.py
+            try:
+                # Используем импортированную функцию get_main_keyboard
+                reply_keyboard = get_main_keyboard()
+                payment_logger.info(f"ReplyKeyboard успешно получена")
+            except Exception as keyboard_error:
+                payment_logger.error(f"Ошибка при получении ReplyKeyboard: {str(keyboard_error)}")
+                # Если не удалось получить клавиатуру из функции, создаем её вручную
+                reply_keyboard = ReplyKeyboardMarkup([
+                    ["Health ассистент", "Управление подпиской"],
+                    ["Связь с поддержкой", "Пригласить друга"]
+                ], resize_keyboard=True)
+                payment_logger.info(f"Создана резервная ReplyKeyboard")
+            
+            # Отправляем сообщение с ReplyKeyboard
+            keyboard_result = bot.send_message(
+                chat_id=user_id,
+                text="Меню доступно ниже ⬇️",
+                reply_markup=reply_keyboard
+            )
+            payment_logger.info(f"ReplyKeyboard успешно отправлена напрямую")
+        except Exception as reply_keyboard_error:
+            payment_logger.error(f"Ошибка при отправке ReplyKeyboard напрямую: {str(reply_keyboard_error)}")
         
         return True
     except Exception as e:
-        payment_logger.error(f"Ошибка при отправке уведомления об оплате: {str(e)}")
+        payment_logger.error(f"Ошибка при отправке уведомлений об оплате: {str(e)}")
         import traceback
         payment_logger.error(f"Подробности: {traceback.format_exc()}")
         return False

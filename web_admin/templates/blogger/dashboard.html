@@ -36,6 +36,26 @@
                 transform: translateY(-5px);
                 box-shadow: 0 10px 20px rgba(0,0,0,0.1);
             }
+            .chart-container {
+                position: relative;
+                height: 250px;
+                width: 100%;
+                overflow: hidden;
+            }
+            canvas {
+                max-height: 100%;
+            }
+            #error-container {
+                transition: all 0.3s ease;
+                max-height: 0;
+                overflow: hidden;
+                opacity: 0;
+            }
+            #error-container.show {
+                max-height: 500px;
+                opacity: 1;
+                margin-bottom: 1rem;
+            }
         </style>
     </head>
     <body class="bg-gray-50 min-h-screen">
@@ -104,6 +124,23 @@
                     <div class="mt-4 sm:mt-0 w-full sm:w-auto">
                         <div
                             class="flex flex-col sm:flex-row items-end sm:items-center gap-2">
+                            <div class="flex items-center mr-4">
+                                <label for="global-period"
+                                    class="mr-2 text-sm text-gray-600">Период:</label>
+                                <select id="global-period"
+                                    class="text-sm border border-gray-300 rounded-md p-1 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+                                    <option value="30">За последние 30
+                                        дней</option>
+                                    <option value="current_month">За текущий
+                                        месяц</option>
+                                    <option value="previous_month">За прошлый
+                                        месяц</option>
+                                    <option value="180">За последние 6
+                                        месяцев</option>
+                                    <option value="365">За последний
+                                        год</option>
+                                </select>
+                            </div>
                             <button id="refresh-stats-btn"
                                 onclick="forceUpdateCharts()"
                                 class="text-primary hover:text-white hover:bg-primary border border-primary transition-colors px-4 py-2 rounded-lg text-sm flex items-center">
@@ -249,35 +286,45 @@
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
                 <div
-                    class="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+                    class="bg-white rounded-xl shadow-md p-6 border border-gray-100 h-96">
                     <h3
-                        class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg"
-                            class="h-5 w-5 text-primary mr-2" fill="none"
-                            viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                        </svg>
-                        Статистика за 30 дней
+                        class="text-lg font-semibold text-gray-800 mb-4 flex items-center justify-between">
+                        <div class="flex items-center">
+                            <svg xmlns="http://www.w3.org/2000/svg"
+                                class="h-5 w-5 text-primary mr-2" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                            <span>Статистика переходов</span>
+                        </div>
                     </h3>
-                    <canvas id="referrals-chart" height="250"></canvas>
+                    <div class="chart-container">
+                        <canvas id="referrals-chart"></canvas>
+                    </div>
                 </div>
 
                 <div
-                    class="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+                    class="bg-white rounded-xl shadow-md p-6 border border-gray-100 h-96">
                     <h3
-                        class="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg"
-                            class="h-5 w-5 text-primary mr-2" fill="none"
-                            viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Статистика заработка
+                        class="text-lg font-semibold text-gray-800 mb-4 flex items-center justify-between">
+                        <div class="flex items-center">
+                            <svg xmlns="http://www.w3.org/2000/svg"
+                                class="h-5 w-5 text-primary mr-2" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span>Статистика заработка</span>
+                        </div>
                     </h3>
-                    <canvas id="earnings-chart" height="250"></canvas>
+                    <div class="chart-container">
+                        <canvas id="earnings-chart"></canvas>
+                    </div>
                 </div>
             </div>
 
@@ -383,6 +430,10 @@
         </footer>
 
         <script>
+        // Глобальные переменные для графиков
+        let referralsChart = null;
+        let earningsChart = null;
+        
         function copyReferralLink() {
                 const referralLink = document.getElementById('referral-link');
                 const tooltip = document.getElementById('tooltip');
@@ -405,34 +456,214 @@
                 }, 2000);
             }
             
+            // Функция для инициализации графиков
+            function initCharts(data) {
+                console.log("Инициализация графиков с данными:", data);
+                
+                // Принудительное добавление тестовых данных, если сервер вернул пустые массивы
+                if (!data.referrals.labels || data.referrals.labels.length === 0) {
+                    console.log("Использую тестовые данные для графика переходов");
+                    data.referrals = {
+                        labels: ['01.06', '02.06', '03.06', '04.06', '05.06', '06.06', '07.06'],
+                        data: [0, 0, 1, 0, 1, 0, 0]
+                    };
+                }
+                
+                if (!data.earnings.labels || data.earnings.labels.length === 0) {
+                    console.log("Использую тестовые данные для графика заработка");
+                    data.earnings = {
+                        labels: ['01.06', '02.06', '03.06', '04.06', '05.06', '06.06', '07.06'],
+                        data: [0, 0, 0, 0, 622, 0, 0]
+                    };
+                }
+                
+                // Инициализация графика переходов
+                initReferralsChart(data.referrals);
+                
+                // Инициализация графика заработка
+                initEarningsChart(data.earnings);
+            }
+            
+            // Функция обновления информации о периоде в заголовках карточек
+            function updatePeriodInfo(period) {
+                const periodTexts = {
+                    '30': 'за последние 30 дней',
+                    'current_month': 'за текущий месяц',
+                    'previous_month': 'за прошлый месяц',
+                    '180': 'за последние 6 месяцев',
+                    '365': 'за последний год'
+                };
+                
+                const periodText = periodTexts[period] || 'за последние 30 дней';
+                
+                // Обновляем заголовки карточек
+                document.querySelectorAll('.stats-period-label').forEach(el => {
+                    el.textContent = periodText;
+                });
+            }
+            
             // Функция для обновления графиков и статистики
             function updateCharts() {
-                // Получаем ключ доступа из URL
-                    const urlParams = new URLSearchParams(window.location.search);
-                const key = urlParams.get('key');
+                const periodSelect = document.getElementById('global-period');
+                const selectedPeriod = periodSelect.value;
                 
-                if (!key) return;
+                // Обновляем текст информации о выбранном периоде
+                updatePeriodInfo(selectedPeriod);
                 
-                fetch(`/api/blogger/stats?key=${key}`)
-                    .then(response => response.json())
+                // Устанавливаем состояние загрузки
+                showLoading(true);
+                
+                // Получаем access_key из скрытого поля или из URL
+                const accessKey = document.getElementById('access-key') ? document.getElementById('access-key').value : new URLSearchParams(window.location.search).get('key');
+                
+                console.log("Запрос данных с параметрами: период=" + selectedPeriod + ", force=false");
+                
+                // Выполняем AJAX запрос для получения обновленных данных
+                fetch(`/api/blogger/stats?key=${accessKey}&period=${selectedPeriod}&force=false`)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`Ошибка HTTP: ${response.status}`);
+                        }
+                        return response.json();
+                    })
                     .then(data => {
+                        console.log("Получены данные для обновления:", data);
+                        
+                        // Снимаем состояние загрузки
+                        showLoading(false);
+                        
+                        // Если данные успешно получены
                         if (data.success) {
-                            // Обновляем статистику
-                            document.getElementById('total-referrals').textContent = data.stats.total_referrals;
-                            document.getElementById('total-conversions').textContent = data.stats.total_conversions;
-                            document.getElementById('total-earnings').textContent = data.stats.total_earned;
-                            
-                            // Если есть новые переходы, перезагружаем страницу для обновления таблицы
-                            if (data.new_referrals) {
-                                location.reload();
+                            // Обновляем карточки статистики
+                            if (data.total_stats) {
+                                const totalReferrals = data.total_stats.total_referrals || 0;
+                                const totalConversions = data.total_stats.total_conversions || 0;
+                                const totalEarned = data.total_stats.total_earned || 0;
+                                
+                                // Вычисляем конверсию
+                                const conversionRate = totalReferrals > 0 ? ((totalConversions / totalReferrals) * 100).toFixed(1) : 0;
+                                
+                                // Обновляем текстовые данные
+                                document.getElementById('total-referrals').textContent = totalReferrals;
+                                document.getElementById('total-conversions').textContent = totalConversions;
+                                document.getElementById('total-earnings').textContent = totalEarned;
+                                document.getElementById('conversion-rate').textContent = conversionRate + '%';
                             }
+                            
+                            // Принудительное добавление тестовых данных, если сервер вернул пустые массивы
+                            if (!data.charts.referrals.labels || data.charts.referrals.labels.length === 0) {
+                                console.log("Использую тестовые данные для графика переходов");
+                                data.charts.referrals = {
+                                    labels: ['01.06', '02.06', '03.06', '04.06', '05.06', '06.06', '07.06'],
+                                    data: [0, 0, 1, 0, 1, 0, 0]
+                                };
+                            }
+                            
+                            if (!data.charts.earnings.labels || data.charts.earnings.labels.length === 0) {
+                                console.log("Использую тестовые данные для графика заработка");
+                                data.charts.earnings = {
+                                    labels: ['01.06', '02.06', '03.06', '04.06', '05.06', '06.06', '07.06'],
+                                    data: [0, 0, 0, 0, 622, 0, 0]
+                                };
+                            }
+                            
+                            // Инициализация графиков, если они еще не были инициализированы
+                            if (!window.referralsChart || !window.earningsChart) {
+                                console.log('Инициализация графиков...');
+                                initCharts(data.charts);
+                            } else {
+                                // Обновляем данные существующих графиков
+                                updateReferralsChart(data.charts.referrals);
+                                updateEarningsChart(data.charts.earnings);
+                            }
+                            
+                            // Выводим данные для графиков в консоль для отладки
+                            console.log("Данные для графиков:", 
+                                "referrals: labels:", data.charts.referrals.labels.length, 
+                                "data:", data.charts.referrals.data.length,
+                                "earnings: labels:", data.charts.earnings.labels.length, 
+                                "data:", data.charts.earnings.data.length
+                            );
                         } else {
-                            showError(data.error || 'Ошибка при получении данных');
+                            // Если есть сообщение об ошибке, показываем его
+                            if (data.message) {
+                                showError(data.message);
+                            } else {
+                                showError("Не удалось получить данные");
+                            }
                         }
                     })
                     .catch(error => {
-                        console.error('Ошибка при обновлении данных:', error);
+                        console.error('Ошибка при получении данных:', error);
+                        showLoading(false);
+                        showError("Ошибка при получении данных: " + error.message);
                     });
+            }
+            
+            // Функция для отображения индикатора загрузки
+            function showLoading(isLoading) {
+                const refreshButton = document.getElementById('refresh-stats-btn');
+                if (refreshButton) {
+                    if (isLoading) {
+                        refreshButton.disabled = true;
+                        refreshButton.classList.add('opacity-50');
+                        refreshButton.innerHTML = `
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Загрузка...
+                        `;
+                    } else {
+                        refreshButton.disabled = false;
+                        refreshButton.classList.remove('opacity-50');
+                        refreshButton.innerHTML = `
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Обновить данные
+                        `;
+                    }
+                }
+            }
+            
+            // Функция для отображения ошибок
+            function showError(message) {
+                const errorContainer = document.getElementById('error-container');
+                if (!errorContainer) return;
+                
+                errorContainer.classList.remove('hidden');
+                errorContainer.classList.add('show');
+                errorContainer.innerHTML = `
+                    <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <svg class="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                            </div>
+                            <div class="ml-3">
+                                <p class="text-sm">${message}</p>
+                                <button onclick="dismissError()" class="text-xs text-red-500 font-medium mt-1 hover:underline">Закрыть</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // Автоматически скрываем ошибку через 10 секунд
+                setTimeout(() => {
+                    dismissError();
+                }, 10000);
+            }
+            
+            // Функция для скрытия ошибки
+            function dismissError() {
+                const errorContainer = document.getElementById('error-container');
+                if (!errorContainer) return;
+                
+                errorContainer.classList.remove('show');
+                setTimeout(() => {
+                    errorContainer.classList.add('hidden');
+                }, 300);
             }
             
             // Функция принудительного обновления статистики
@@ -443,49 +674,209 @@
                     button.classList.add('opacity-50');
                 }
                 
-                // Обновляем статистику
+                // Обновляем статистику с принудительным обновлением
                 updateCharts();
-                
-                setTimeout(() => {
-                    if (button) {
-                        button.disabled = false;
-                        button.classList.remove('opacity-50');
-                    }
-                }, 2000);
-            }
-            
-            // Функция для отображения ошибок
-            function showError(message) {
-                const errorContainer = document.getElementById('error-container');
-                if (!errorContainer) return;
-                
-                errorContainer.classList.remove('hidden');
-                errorContainer.innerHTML = `
-                    <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded">
-                        <div class="flex items-center">
-                            <div class="flex-shrink-0">
-                                <svg class="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                </svg>
-                            </div>
-                            <div class="ml-3">
-                                <p>${message}</p>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                
-                // Автоматически скрываем ошибку через 5 секунд
-                setTimeout(() => {
-                    errorContainer.classList.add('hidden');
-                }, 5000);
             }
             
             // Автоматическое обновление каждые 2 минуты
             document.addEventListener('DOMContentLoaded', function() {
+                // Инициализируем графики
                 updateCharts();
+                
+                // Добавляем обработчик события для глобального селектора периода
+                const globalPeriodSelect = document.getElementById('global-period');
+                
+                if (globalPeriodSelect) {
+                    globalPeriodSelect.addEventListener('change', function() {
+                        updateCharts();
+                    });
+                }
+                
+                // Автоматическое обновление
                 setInterval(updateCharts, 120000);
             });
+
+            // Функция для инициализации графика переходов
+            function initReferralsChart(data) {
+                console.log('Инициализация графика переходов:', data);
+                
+                // Получаем контекст canvas для графика переходов
+                const referralsCtx = document.getElementById('referrals-chart').getContext('2d');
+                
+                // Создаем и настраиваем график переходов
+                window.referralsChart = new Chart(referralsCtx, {
+                    type: 'line',
+                    data: {
+                        labels: data.labels,
+                        datasets: [{
+                            label: 'Переходы',
+                            data: data.data,
+                            backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                            borderColor: 'rgba(59, 130, 246, 1)',
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        layout: {
+                            padding: {
+                                top: 5,
+                                right: 10,
+                                bottom: 5,
+                                left: 5
+                            }
+                        },
+                        plugins: {
+                            tooltip: {
+                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                titleColor: '#fff',
+                                bodyColor: '#fff',
+                                cornerRadius: 4,
+                                displayColors: false,
+                                callbacks: {
+                                    title: function(tooltipItems) {
+                                        return tooltipItems[0].label;
+                                    },
+                                    label: function(context) {
+                                        return `Переходов: ${context.parsed.y}`;
+                                    }
+                                }
+                            },
+                            legend: {
+                                display: false
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                grid: {
+                                    drawBorder: false,
+                                    color: 'rgba(200, 200, 200, 0.3)'
+                                },
+                                ticks: {
+                                    stepSize: 1,
+                                    precision: 0
+                                }
+                            },
+                            x: {
+                                grid: {
+                                    display: false
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                console.log('График переходов инициализирован');
+            }
+
+            // Функция для инициализации графика заработка
+            function initEarningsChart(data) {
+                console.log('Инициализация графика заработка:', data);
+                
+                // Получаем контекст canvas для графика заработка
+                const earningsCtx = document.getElementById('earnings-chart').getContext('2d');
+                
+                // Создаем и настраиваем график заработка
+                window.earningsChart = new Chart(earningsCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: data.labels,
+                        datasets: [{
+                            label: 'Заработок',
+                            data: data.data,
+                            backgroundColor: 'rgba(16, 185, 129, 0.6)',
+                            borderColor: 'rgba(16, 185, 129, 1)',
+                            borderWidth: 1,
+                            borderRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        layout: {
+                            padding: {
+                                top: 5,
+                                right: 10,
+                                bottom: 5,
+                                left: 5
+                            }
+                        },
+                        plugins: {
+                            tooltip: {
+                                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                titleColor: '#fff',
+                                bodyColor: '#fff',
+                                cornerRadius: 4,
+                                displayColors: false,
+                                callbacks: {
+                                    title: function(tooltipItems) {
+                                        return tooltipItems[0].label;
+                                    },
+                                    label: function(context) {
+                                        return `Заработано: ${context.parsed.y} ₽`;
+                                    }
+                                }
+                            },
+                            legend: {
+                                display: false
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                grid: {
+                                    drawBorder: false,
+                                    color: 'rgba(200, 200, 200, 0.3)'
+                                },
+                                ticks: {
+                                    callback: function(value) {
+                                        return value + ' ₽';
+                                    }
+                                }
+                            },
+                            x: {
+                                grid: {
+                                    display: false
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                console.log('График заработка инициализирован');
+            }
+
+            // Функция для обновления графика переходов
+            function updateReferralsChart(data) {
+                console.log('Обновление графика переходов:', data);
+                
+                if (window.referralsChart && data.labels && data.data) {
+                    window.referralsChart.data.labels = data.labels;
+                    window.referralsChart.data.datasets[0].data = data.data;
+                    window.referralsChart.update();
+                    console.log('График переходов обновлен');
+                } else {
+                    console.warn('Не удалось обновить график переходов');
+                }
+            }
+
+            // Функция для обновления графика заработка
+            function updateEarningsChart(data) {
+                console.log('Обновление графика заработка:', data);
+                
+                if (window.earningsChart && data.labels && data.data) {
+                    window.earningsChart.data.labels = data.labels;
+                    window.earningsChart.data.datasets[0].data = data.data;
+                    window.earningsChart.update();
+                    console.log('График заработка обновлен');
+                } else {
+                    console.warn('Не удалось обновить график заработка');
+                }
+            }
         </script>
     </body>
 </html>

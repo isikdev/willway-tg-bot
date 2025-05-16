@@ -487,11 +487,13 @@ def health_assistant_button(update: Update, context: CallbackContext):
     if update.message:
         message = update.message
         user_id = message.from_user.id
+        user_first_name = message.from_user.first_name
     else:
         query = update.callback_query
         query.answer()
         message = query.message
         user_id = query.from_user.id
+        user_first_name = query.from_user.first_name
     
     # Проверяем подписку через базу данных
     is_subscribed = update_subscription_status(user_id, context)
@@ -520,9 +522,9 @@ def health_assistant_button(update: Update, context: CallbackContext):
     
     # Определяем какое приветствие показывать
     if user and user.health_assistant_first_time:
-        # Первый запуск ассистента - показываем полное приветствие
+        # Первый запуск ассистента - показываем полное приветствие с обращением по имени
         greeting_text = (
-            "Привет! Я твой личный health-ассистент WILLWAY. Помогу тебе создать здоровое подтянутое тело, улучшить ментальное состояние и внедрить новые привычки, которые реально улучшают качество жизни.\n\n"
+            f"Привет {user_first_name}! Я твой личный health-ассистент WILLWAY. Помогу тебе создать здоровое подтянутое тело, улучшить ментальное состояние и внедрить новые привычки, которые реально улучшают качество жизни.\n\n"
             "Я здесь, чтобы поддерживать тебя на пути, не давая сбиться с курса, мотивировать и подсказывать, что делать на каждом этапе.\n\n"
             "Скажи с чего начнем: \n"
             "- Программа тренировок \n"
@@ -535,11 +537,6 @@ def health_assistant_button(update: Update, context: CallbackContext):
         session.commit()
     else:
         # Повторный запуск - показываем персонализированное приветствие
-        if update.message:
-            user_first_name = update.message.from_user.first_name
-        else:
-            user_first_name = update.callback_query.from_user.first_name
-        
         greeting_text = (
             f"Рад видеть тебя снова, {user_first_name}. В чем нужна помощь сегодня?\n"
             "- Тренировки\n"
@@ -2495,6 +2492,45 @@ def send_successful_payment_messages(update: Update, context: CallbackContext, s
     """Отправка сообщений об успешной оплате"""
     user_id = update.effective_user.id
     
+    try:
+        # Получаем данные о подписке пользователя
+        session = get_session()
+        user = session.query(User).filter(User.user_id == user_id).first()
+        
+        if user:
+            is_subscribed = user.is_subscribed
+            subscription_type = user.subscription_type
+            subscription_expires = user.subscription_expires
+            
+            if is_subscribed and subscription_expires:
+                # Форматируем дату окончания подписки
+                expires_date = subscription_expires.strftime("%d.%m.%Y")
+                remaining_days = (subscription_expires - datetime.now()).days
+                
+                # Определяем тип подписки для отображения
+                sub_type = "месячная" if subscription_type == "monthly" else "годовая"
+                
+                # Создаем клавиатуру для управления подпиской
+                keyboard_subscription = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("Продлить подписку", callback_data="renew_subscription")],
+                    [get_cancel_subscription_button()]
+                ])
+                
+                # Отправляем информацию о подписке (точно как при нажатии кнопки "Управление подпиской")
+                context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"💎 *Информация о подписке*\n\n"
+                         f"• Тип: {sub_type}\n"
+                         f"• Активна до: {expires_date}\n"
+                         f"• Осталось дней: {remaining_days}\n\n"
+                         f"Для отмены подписки нажмите соответствующую кнопку ниже.",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=keyboard_subscription
+                )
+    except Exception as e:
+        logger.error(f"Ошибка при отправке информации о подписке: {str(e)}")
+    
+    # Затем отправляем основное сообщение об успешной оплате
     message = (
         "Спасибо за доверие. Ты сделал правильный выбор! "
         "Мы постараемся сделать все, чтобы помочь тебе прийти к своей цели.\n\n"
@@ -2515,18 +2551,39 @@ def send_successful_payment_messages(update: Update, context: CallbackContext, s
     config = get_bot_config()
     channel_url = config.get("channel_url", "https://t.me/willway_channel")
     
-    # Создаем клавиатуру с веб-приложением и ссылкой на канал
-    keyboard = [
-        [InlineKeyboardButton("Доступ к приложению", web_app={"url": "https://willway.pro/app"})],
-        [InlineKeyboardButton("Вступить в канал", url=channel_url)]
-    ]
+    # Создаем InlineKeyboard с кнопками
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(text="Доступ к приложению", web_app={"url": "https://willway.pro/"})],
+        [InlineKeyboardButton(text="Вступить в канал", url=channel_url)]
+    ])
     
-    # Отправляем сообщение с клавиатурой
+    # Отправляем сообщение с InlineKeyboard
     context.bot.send_message(
         chat_id=user_id,
         text=message,
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=keyboard
     )
+    
+    # Отправляем ReplyKeyboard кнопки
+    try:
+        reply_keyboard = get_main_keyboard()
+        context.bot.send_message(
+            chat_id=user_id,
+            text="Меню доступно ниже ⬇️",
+            reply_markup=reply_keyboard
+        )
+    except Exception as e:
+        logger.error(f"Ошибка при отправке ReplyKeyboard: {str(e)}")
+        # Если не удалось получить клавиатуру из функции, создаем её вручную
+        reply_keyboard = ReplyKeyboardMarkup([
+            ["Health ассистент", "Управление подпиской"],
+            ["Связь с поддержкой", "Пригласить друга"]
+        ], resize_keyboard=True)
+        context.bot.send_message(
+            chat_id=user_id,
+            text="Меню доступно ниже ⬇️",
+            reply_markup=reply_keyboard
+        )
 
 def send_pending_message(user_id, manager_username):
     """Отправка сообщения о незавершенной оплате"""
@@ -3304,7 +3361,7 @@ def send_welcome_subscription_messages(context, user_id):
         
         # Клавиатура с кнопками для приложения и канала
         keyboard = [
-            [InlineKeyboardButton("Доступ к приложению", url="https://willway.pro/app")],
+            [InlineKeyboardButton("Доступ к приложению", url="https://willway.pro/")],
             [InlineKeyboardButton("Вступить в канал", url=channel_url)]
         ]
         
@@ -3625,44 +3682,49 @@ class PaymentHandler:
         pass
         
     def generate_tilda_payment_link(self, user_data, subscription_type):
-        """Генерирует ссылку на страницу оплаты Tilda"""
         user_id = user_data.get('user_id')
-        logger.info(f"[PAYMENT] Генерация ссылки на страницу оплаты Tilda для пользователя {user_id}")
-        
-        # Формируем базовый URL страницы оплаты
-        payment_url = "https://willway.pro/payment"
-        
-        # Добавляем только параметр ID пользователя
-        full_url = f"{payment_url}?tgid={user_id}"
-        
-        logger.info(f"[PAYMENT] Сгенерирована ссылка: {full_url}")
-        return full_url
-        
-    def process_webhook(self, webhook_data):
-        return {'success': False, 'error': 'Платежная система отключена'}
+        base_url = "https://willway.pro/"
+        return f"{base_url}?tgid={user_id}&subscription_type={subscription_type}"
 
 class CloudPaymentAdapter:
     def __init__(self):
         pass
         
+        
     def generate_payment_url(self, amount, currency, invoice_id, description, account_id, email, data=None):
         return None
 
 def get_payment_keyboard_inline(user_id):
-    # Формируем цены с разделителями тысяч и символом рубля
-    monthly_price = f"{MONTHLY_SUBSCRIPTION_PRICE:,}".replace(",", " ") + " ₽"
-    yearly_price = f"{YEARLY_SUBSCRIPTION_PRICE:,}".replace(",", " ") + " ₽"
+    # Форматируем цены с разделителями тысяч и символом рубля
+    # Отключаем локаль, потому что она может вызывать проблемы с совместимостью
+    # locale.setlocale(locale.LC_ALL, 'ru_RU.UTF-8')
     
-    # Расчет процента экономии при годовой подписке
-    monthly_yearly = MONTHLY_SUBSCRIPTION_PRICE * 12
-    savings_percent = round((monthly_yearly - YEARLY_SUBSCRIPTION_PRICE) / monthly_yearly * 100)
+    # Ручная форматирование с пробелом как разделитель тысяч
+    # Function to format prices with space thousands separator and ruble sign
+    def format_price(price):
+        # Convert to string and split into integer and decimal parts
+        price_str = str(price)
+        parts = price_str.split('.')
+        integer_part = parts[0]
+        
+        # Format the integer part with space as thousand separator
+        if len(integer_part) > 3:
+            formatted = integer_part[:-3] + ' ' + integer_part[-3:]
+        else:
+            formatted = integer_part
+            
+        return formatted + " ₽"
+        
+    monthly_price = format_price(MONTHLY_SUBSCRIPTION_PRICE)
+    yearly_price = format_price(YEARLY_SUBSCRIPTION_PRICE)
     
-    # Используем callback вместо URL
-    keyboard = [
-        [InlineKeyboardButton("Варианты WILLWAY подписки:", callback_data="show_subscription_options")],
-        [InlineKeyboardButton("Назад в меню", callback_data="back_to_menu")]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("Доступ к приложению", url="https://willway.pro/")],
+        [InlineKeyboardButton(f"Месячная подписка - {monthly_price}", callback_data=f"pay_monthly_{user_id}")],
+        [InlineKeyboardButton(f"Годовая подписка - {yearly_price} (скидка 28%)", callback_data=f"pay_yearly_{user_id}")],
+    ])
+    
+    return keyboard
 
 def save_bot_config(config):
     try:

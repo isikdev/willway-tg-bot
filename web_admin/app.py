@@ -413,23 +413,17 @@ def message_sender():
 @app.route('/bot-settings', methods=['GET', 'POST'])
 @login_required
 def bot_settings():
-    # Значения по умолчанию
+    # Определяем значения по умолчанию
     default_config = {
-        "bot_token": "",
-        "bot_name": "WillWay Bot",
-        "about_text": "",
-        "description": "",
+        "bot_name": "WILLWAY",
+        "trainer_username": "Jackturaa",
+        "manager_username": "Jackturaa",
+        "about_text": "Официальный телеграмм бот, компании WillWay \nАдминистратор: @Jackturaa",
+        "description": "WILLWAY — это забота о тебе в одном приложении: тренер, нутрициолог и психолог прямо в телефоне.\n- Поможем улучшить здоровье, осанку, тело и внутреннее состояние.\n- Подберём тренировки под твои цели, питание, учитывая особенности организма и ритм жизни.\n- Снизим стресс, наладим сон, снимем напряжение с помощью медитаций и телесных практик.\nНажимай \"Старт\" и убедись в этом сам.",
         "privacy_mode": False,
-        "trainer_username": "",
-        "manager_username": "",
-        "channel_url": "https://t.me/willway_channel",
         "subscription_page_url": "https://willway.ru/subscriptions",
-        "reviews_page_url": "https://willway.ru/reviews",
-        "test_drive_url": "https://willway.ru/test-drive",
-        "commands": {
-            "/start": "Начать общение с ботом",
-            "/help": "Показать справку"
-        }
+        "reviews_page_url": "https://willway.pro/feedback",
+        "test_drive_url": "https://willway.ru/test-drive"
     }
     
     # Проверяем существование файла конфигурации
@@ -529,23 +523,21 @@ def bot_settings():
                 # Создаем директорию для загрузки файлов, если она не существует
                 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
                 
-                # Обновляем конфигурацию из формы
+                # Обновляем конфигурацию
                 updated_config = {
-                    "bot_token": request.form.get('bot_token', default_config["bot_token"]),
-                    "bot_name": request.form.get('bot_name', default_config["bot_name"]),
+                    "bot_name": request.form.get('bot_name', default_config.get("bot_name", "WILLWAY")),
+                    "trainer_username": request.form.get('trainer_username', default_config.get("trainer_username", "Jackturaa")),
+                    "manager_username": request.form.get('manager_username', default_config.get("manager_username", "Jackturaa")),
                     "about_text": request.form.get('about_text', default_config.get("about_text", "")),
                     "description": request.form.get('description', default_config.get("description", "")),
                     "privacy_mode": 'privacy_mode' in request.form,
-                    "trainer_username": request.form.get('trainer_username', default_config.get("trainer_username", "")),
-                    "manager_username": request.form.get('manager_username', default_config.get("manager_username", "")),
-                    "channel_url": request.form.get('channel_url', default_config.get("channel_url", "https://t.me/willway_channel")),
-                    "subscription_page_url": request.form.get('subscription_page_url', default_config.get("subscription_page_url", "https://willway.ru/subscriptions")),
-                    "reviews_page_url": request.form.get('reviews_page_url', default_config.get("reviews_page_url", "https://willway.ru/reviews")),
-                    "test_drive_url": request.form.get('test_drive_url', default_config.get("test_drive_url", "https://willway.ru/test-drive")),
                     "description_pic_url": current_config.get("description_pic_url", ""),
-                    "botpic_url": current_config.get("botpic_url", ""),
                     "intro_video_url": current_config.get("intro_video_url", ""),
-                    "commands": current_config.get("commands", default_config["commands"])
+                    "botpic_url": current_config.get("botpic_url", ""),
+                    "channel_url": request.form.get('channel_url', default_config.get("channel_url", "")),
+                    "subscription_page_url": request.form.get('subscription_page_url', default_config.get("subscription_page_url", "https://willway.ru/subscriptions")),
+                    "reviews_page_url": request.form.get('reviews_page_url', default_config.get("reviews_page_url", "https://willway.pro/feedback")),
+                    "test_drive_url": request.form.get('test_drive_url', default_config.get("test_drive_url", "https://willway.ru/test-drive")),
                 }
                 
                 # Обрабатываем команды бота
@@ -1226,7 +1218,7 @@ def api_blogger_verify_key():
     
     access_key = data['access_key']
     db_session = get_session()
-    blogger = db_session.query(Blogger).filter_by(access_key=access_key, is_active=True).first()
+    blogger = db_session.query(Blogger).filter_by(access_key=access_key).first()
     db_session.close()
     
     if not blogger:
@@ -1540,26 +1532,95 @@ def admin_stats():
 def blogger_stats_api():
     """API для получения статистики блогера"""
     access_key = request.args.get('key')
+    referrals_period = request.args.get('referrals_period', '30')
+    earnings_period = request.args.get('earnings_period', '30')
+    force_update = request.args.get('force', '0') == '1'
     
     if not access_key:
         return jsonify({"success": False, "error": "Не указан ключ доступа"}), 400
     
     try:
+        # Ведем подробное логирование для отладки
+        app.logger.info(f"Запрос статистики: key={access_key}, referrals_period={referrals_period}, earnings_period={earnings_period}, force={force_update}")
+        
         # Получаем данные блогера
         blogger = get_blogger_by_key(access_key)
         
         if not blogger:
+            app.logger.warning(f"Блогер не найден для ключа: {access_key}")
             return jsonify({"success": False, "error": "Блогер не найден"}), 404
         
-        # Обновляем статистику
-        stats = update_blogger_stats(blogger['id'])
+        app.logger.info(f"Запрос статистики для блогера {blogger['id']}, периоды: referrals={referrals_period}, earnings={earnings_period}")
         
+        # Проверяем допустимые значения периодов
+        valid_periods = ['30', 'current_month', 'previous_month', '180', '365']
+        if referrals_period not in valid_periods:
+            app.logger.warning(f"Недопустимый период referrals_period: {referrals_period}")
+            referrals_period = '30'  # Устанавливаем период по умолчанию
+        
+        if earnings_period not in valid_periods:
+            app.logger.warning(f"Недопустимый период earnings_period: {earnings_period}")
+            earnings_period = '30'  # Устанавливаем период по умолчанию
+        
+        # Обновляем общую статистику блогера
+        try:
+            stats = update_blogger_stats(blogger['id'])
+            app.logger.info(f"Общая статистика блогера {blogger['id']}: {stats}")
+        except Exception as e:
+            app.logger.error(f"Ошибка при обновлении общей статистики блогера {blogger['id']}: {str(e)}")
+            stats = {
+                'total_referrals': 0,
+                'total_conversions': 0,
+                'total_earned': 0
+            }
+        
+        # Данные с учетом выбранных периодов для карточек со статистикой
+        try:
+            period_stats = get_blogger_period_stats(blogger['id'], referrals_period)
+            app.logger.info(f"Статистика за период {referrals_period}: {period_stats}")
+        except Exception as e:
+            app.logger.error(f"Ошибка при получении статистики за период {referrals_period} для блогера {blogger['id']}: {str(e)}")
+            period_stats = {
+                'total_referrals': 0,
+                'total_conversions': 0,
+                'total_earned': 0
+            }
+        
+        # Получаем данные для графиков
+        try:
+            charts = get_blogger_charts(blogger['id'], referrals_period, earnings_period)
+            app.logger.info(f"Получены данные для графиков блогера {blogger['id']}")
+        except Exception as e:
+            app.logger.error(f"Ошибка при получении данных для графиков блогера {blogger['id']}: {str(e)}")
+            charts = {
+                'referrals': {'labels': [], 'data': []},
+                'earnings': {'labels': [], 'data': []}
+            }
+        
+        # Возвращаем объединенные данные
         return jsonify({
             "success": True, 
-            "stats": stats
+            "stats": period_stats,  # Статистика за выбранный период
+            "total_stats": stats,   # Общая статистика
+            "charts": charts
         })
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        app.logger.error(f"Критическая ошибка при получении статистики блогера: {str(e)}")
+        import traceback
+        app.logger.error(traceback.format_exc())
+        return jsonify({
+            "success": False, 
+            "error": f"Ошибка при получении данных: {str(e)}",
+            "stats": {
+                'total_referrals': 0,
+                'total_conversions': 0,
+                'total_earned': 0
+            },
+            "charts": {
+                'referrals': {'labels': [], 'data': []},
+                'earnings': {'labels': [], 'data': []}
+            }
+        }), 500
 
 if __name__ == "__main__":
     with app.app_context():

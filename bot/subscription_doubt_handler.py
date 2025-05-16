@@ -28,10 +28,10 @@ def get_bot_config():
             return config
         else:
             logger.warning(f"Файл конфигурации не найден: {config_path}")
-            return {'reviews_channel_url': 'https://t.me/willway_reviews'}
+            return {'reviews_channel_url': 'https://willway.pro/feedback'}
     except Exception as e:
         logger.error(f"Ошибка при чтении конфигурации: {e}")
-        return {'reviews_channel_url': 'https://t.me/willway_reviews'}
+        return {'reviews_channel_url': 'https://willway.pro/feedback'}
 
 # Создаем класс для генерации ссылок на оплату
 class PaymentHelper:
@@ -69,7 +69,7 @@ def get_subscription_keyboard(user_id=None):
     ]
     
     config = get_bot_config()
-    reviews_url = config.get('reviews_channel_url', 'https://t.me/willway_reviews')
+    reviews_url = config.get('reviews_channel_url', 'https://willway.pro/feedback')
     
     keyboard.extend([
         [InlineKeyboardButton("Отзывы", url=reviews_url)],
@@ -200,7 +200,7 @@ def handle_result_doubt(update: Update, context: CallbackContext):
     
     # Получаем URL канала отзывов из конфигурации
     config = get_bot_config()
-    reviews_url = config.get('reviews_channel_url', 'https://t.me/willway_reviews')
+    reviews_url = config.get('reviews_channel_url', 'https://willway.pro/feedback')
     
     # Форматируем текст, добавляя URL канала отзывов
     result_text = result_text.replace("Ссылка на канал с отзывами", f"[Ссылка на канал с отзывами]({reviews_url})")

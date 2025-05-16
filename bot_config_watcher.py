@@ -32,11 +32,6 @@ logger = logging.getLogger(__name__)
 # Конфигурация ботов
 BOT_CONFIGS = [
     {
-        "name": "main",
-        "config_file": "bot_config.json",
-        "script_file": "run_bot.py"
-    },
-    {
         "name": "blogger",
         "config_file": "blogger_bot_config.json",
         "script_file": "run_blogger_bot.py"

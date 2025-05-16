@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-Скрипт для запуска системы мониторинга и управления всеми ботами
+Скрипт для запуска системы управления всеми ботами
+Запускает основной бот и блогер-бот независимо друг от друга
 """
 
 import os
@@ -31,79 +32,123 @@ def stream_output(stream, prefix):
         if line:
             print(f"{prefix} | {line.strip()}")
 
-def run_bots_watcher():
-    """Запускает систему мониторинга и управления ботами"""
+def run_bots_manager():
+    """Запускает систему управления ботами"""
     try:
-        logger.info("Запуск системы мониторинга и управления ботами WILLWAY")
+        logger.info("Запуск системы управления ботами WILLWAY")
         
         # Определяем интерпретатор Python
         python_executable = sys.executable
         if not python_executable:
             python_executable = 'python'  # Или python3, в зависимости от системы
         
-        # Запускаем процесс мониторинга
-        watcher_process = subprocess.Popen(
-            [python_executable, 'bot_config_watcher.py'],
+        # Запускаем основной бот напрямую (теперь он сам отслеживает свои изменения)
+        main_bot_process = subprocess.Popen(
+            [python_executable, 'run_bot.py'],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True
         )
         
-        logger.info(f"Система мониторинга запущена, PID: {watcher_process.pid}")
+        logger.info(f"Основной бот запущен, PID: {main_bot_process.pid}")
         
-        # Создаем поток для вывода логов системы мониторинга
-        watcher_thread = threading.Thread(
+        # Создаем поток для вывода логов основного бота
+        main_bot_thread = threading.Thread(
             target=stream_output,
-            args=(watcher_process.stdout, "[WATCHER]"),
+            args=(main_bot_process.stdout, "[MAIN BOT]"),
             daemon=True
         )
-        watcher_thread.start()
+        main_bot_thread.start()
         
-        # Прямой доступ к логам основного бота
-        bot_log_path = 'bot.log'
-        if os.path.exists(bot_log_path):
-            # Начальное чтение лога
-            with open(bot_log_path, 'r') as f:
-                # Переходим в конец файла
-                f.seek(0, 2)
-                bot_log_position = f.tell()
-        else:
-            bot_log_position = 0
+        # Запускаем процесс мониторинга для блогер-бота
+        blogger_watcher_process = subprocess.Popen(
+            [python_executable, 'run_watcher.py'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True
+        )
         
-        # Основной цикл для отслеживания логов
-        while watcher_process.poll() is None:
-            time.sleep(0.5)
+        logger.info(f"Система мониторинга блогер-бота запущена, PID: {blogger_watcher_process.pid}")
+        
+        # Создаем поток для вывода логов блогер-бота
+        blogger_thread = threading.Thread(
+            target=stream_output,
+            args=(blogger_watcher_process.stdout, "[BLOGGER BOT]"),
+            daemon=True
+        )
+        blogger_thread.start()
+        
+        # Основной цикл для проверки работоспособности процессов
+        while True:
+            time.sleep(5)
             
-            # Проверяем и выводим логи основного бота
-            if os.path.exists(bot_log_path):
-                with open(bot_log_path, 'r') as f:
-                    f.seek(bot_log_position)
-                    bot_log_content = f.read()
-                    bot_log_position = f.tell()
-                    
-                    if bot_log_content:
-                        for line in bot_log_content.splitlines():
-                            if line:
-                                print(f"[MAIN BOT] | {line}")
-        
-        # Ожидаем завершения процесса мониторинга
-        watcher_process.wait()
-        exit_code = watcher_process.returncode
-        logger.info(f"Система мониторинга завершила работу с кодом: {exit_code}")
+            # Проверяем основной бот
+            if main_bot_process.poll() is not None:
+                exit_code = main_bot_process.returncode
+                logger.warning(f"Основной бот неожиданно завершился с кодом {exit_code}, перезапускаем...")
+                # Перезапускаем
+                main_bot_process = subprocess.Popen(
+                    [python_executable, 'run_bot.py'],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True
+                )
+                logger.info(f"Основной бот перезапущен, новый PID: {main_bot_process.pid}")
+                
+                # Обновляем поток для логов
+                main_bot_thread = threading.Thread(
+                    target=stream_output,
+                    args=(main_bot_process.stdout, "[MAIN BOT]"),
+                    daemon=True
+                )
+                main_bot_thread.start()
+            
+            # Проверяем блогер-бот
+            if blogger_watcher_process.poll() is not None:
+                exit_code = blogger_watcher_process.returncode
+                logger.warning(f"Система мониторинга блогер-бота неожиданно завершилась с кодом {exit_code}, перезапускаем...")
+                # Перезапускаем
+                blogger_watcher_process = subprocess.Popen(
+                    [python_executable, 'run_watcher.py'],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True
+                )
+                logger.info(f"Система мониторинга блогер-бота перезапущена, новый PID: {blogger_watcher_process.pid}")
+                
+                # Обновляем поток для логов
+                blogger_thread = threading.Thread(
+                    target=stream_output,
+                    args=(blogger_watcher_process.stdout, "[BLOGGER BOT]"),
+                    daemon=True
+                )
+                blogger_thread.start()
         
     except KeyboardInterrupt:
-        logger.info("Получен сигнал завершения работы")
+        logger.info("Получен сигнал завершения работы системы управления ботами")
         try:
-            if watcher_process and watcher_process.poll() is None:
-                watcher_process.send_signal(signal.SIGTERM)
-                time.sleep(1)
-                if watcher_process.poll() is None:
-                    watcher_process.kill()
+            # Останавливаем основной бот
+            if main_bot_process and main_bot_process.poll() is None:
+                logger.info(f"Остановка основного бота (PID: {main_bot_process.pid})...")
+                main_bot_process.send_signal(signal.SIGTERM)
+                time.sleep(2)
+                if main_bot_process.poll() is None:
+                    logger.warning("Основной бот не ответил на SIGTERM, принудительно завершаем...")
+                    main_bot_process.kill()
+            
+            # Останавливаем блогер-бот
+            if blogger_watcher_process and blogger_watcher_process.poll() is None:
+                logger.info(f"Остановка системы мониторинга блогер-бота (PID: {blogger_watcher_process.pid})...")
+                blogger_watcher_process.send_signal(signal.SIGTERM)
+                time.sleep(2)
+                if blogger_watcher_process.poll() is None:
+                    logger.warning("Система мониторинга блогер-бота не ответила на SIGTERM, принудительно завершаем...")
+                    blogger_watcher_process.kill()
         except Exception as e:
-            logger.error(f"Ошибка при остановке процесса: {e}")
+            logger.error(f"Ошибка при остановке процессов: {e}")
             
     except Exception as e:
-        logger.error(f"Ошибка при запуске системы мониторинга: {e}")
+        logger.error(f"Ошибка в системе управления ботами: {e}")
 
 if __name__ == "__main__":
-    run_bots_watcher() 
+    run_bots_manager() 
